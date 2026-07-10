@@ -1,0 +1,421 @@
+﻿.fiscal-page {
+    max-width: 1500px;
+    padding: 2.5rem 2rem;
+}
+
+.page-header h1 {
+    margin: 0 0 1.5rem;
+    font-size: 2rem;
+    font-weight: 700;
+    color: #111827;
+}
+
+.filter-panel {
+    display: grid;
+    grid-template-columns: minmax(320px, 1fr) 140px 140px;
+    gap: 1rem;
+    align-items: end;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    background: #fff;
+    border: 1px solid #d9dee7;
+    border-radius: 6px;
+}
+
+.field {
+    display: grid;
+    gap: 0.4rem;
+}
+
+.field label {
+    font-weight: 700;
+    color: #334155;
+}
+
+.field select {
+    min-height: 2.4rem;
+    padding: 0.45rem 0.6rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    background: #fff;
+    color: #111827;
+}
+
+.primary-button {
+    min-height: 2.4rem;
+    padding: 0.45rem 0.9rem;
+    border: 1px solid #155da8;
+    border-radius: 4px;
+    background: #1b6ec2;
+    color: #fff;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.secondary-button {
+    min-height: 2.4rem;
+    padding: 0.45rem 0.9rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    background: #fff;
+    color: #334155;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.primary-button:disabled,
+.secondary-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+
+.message.info {
+    margin-bottom: 1rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid #b6d4fe;
+    border-radius: 4px;
+    background: #cff4fc;
+    color: #055160;
+}
+
+.year-summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(180px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.year-summary > div {
+    padding: 1rem;
+    border: 1px solid #d9dee7;
+    border-radius: 6px;
+    background: #fff;
+}
+
+.summary-label {
+    display: block;
+    margin-bottom: 0.35rem;
+    color: #64748b;
+    font-size: 0.85rem;
+}
+
+.year-summary strong {
+    color: #111827;
+    font-size: 1.25rem;
+}
+
+.months-table-wrap {
+    overflow-x: auto;
+    border: 1px solid #d9dee7;
+    border-radius: 6px;
+    background: #fff;
+}
+
+.months-table {
+    width: 100%;
+    min-width: 1120px;
+    border-collapse: collapse;
+}
+
+.months-table th,
+.months-table td {
+    padding: 0.75rem 0.85rem;
+    border-bottom: 1px solid #e2e8f0;
+    text-align: left;
+    vertical-align: middle;
+}
+
+.months-table th {
+    background: #f8fafc;
+    color: #334155;
+    font-size: 0.82rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.months-table tr:last-child td {
+    border-bottom: 0;
+}
+
+.months-table tr.actions-row td {
+    padding-top: 0;
+    background: #fbfdff;
+}
+
+.months-table tr.actions-row td:first-child {
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.months-table tr.empty {
+    background: #fbfdff;
+    color: #64748b;
+}
+
+.months-table .number {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.months-table .highlight {
+    color: #155da8;
+    font-weight: 700;
+}
+
+.file-cell {
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #334155;
+}
+
+.status-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.45rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+tr.imported .status-pill {
+    background: #d1e7dd;
+    color: #0f5132;
+}
+
+tr.empty .status-pill {
+    background: #e2e8f0;
+    color: #475569;
+}
+
+.table-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-start;
+    align-items: center;
+    flex-wrap: wrap;
+    white-space: normal;
+}
+
+.delete-month-button,
+.guide-button,
+.guide-download-button,
+.analyze-entries-button,
+.cfop-summary-button,
+.products-button,
+.analysis-button,
+.pdf-button {
+    min-height: 2rem;
+    padding: 0.35rem 0.65rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.delete-month-button {
+    border: 1px solid #dc3545;
+    background: #fff;
+    color: #b02a37;
+    cursor: pointer;
+}
+
+.guide-button {
+    border: 1px solid #334155;
+    background: #334155;
+    color: #fff;
+    cursor: pointer;
+}
+
+.guide-button:hover:not(:disabled) {
+    background: #1f2937;
+}
+
+.guide-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+
+.delete-month-button:hover:not(:disabled) {
+    background: #dc3545;
+    color: #fff;
+}
+
+.delete-month-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+
+.analyze-entries-button,
+.guide-download-button,
+.cfop-summary-button,
+.products-button,
+.analysis-button,
+.pdf-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #155da8;
+    background: #155da8;
+    color: #fff;
+    text-decoration: none;
+}
+
+.analyze-entries-button:hover,
+.guide-download-button:hover,
+.cfop-summary-button:hover,
+.products-button:hover,
+.analysis-button:hover,
+.pdf-button:hover {
+    background: #0f4f87;
+    color: #fff;
+    text-decoration: none;
+}
+
+.cfop-summary-button {
+    border-color: #0f766e;
+    background: #0f766e;
+}
+
+.cfop-summary-button:hover {
+    background: #115e59;
+}
+
+.products-button {
+    border-color: #b45309;
+    background: #b45309;
+}
+
+.products-button:hover {
+    background: #92400e;
+}
+
+.analysis-button {
+    border-color: #2563eb;
+    background: #2563eb;
+}
+
+.analysis-button:hover {
+    background: #1d4ed8;
+}
+
+.pdf-button {
+    border-color: #7c3aed;
+    background: #7c3aed;
+}
+
+.pdf-button:hover {
+    background: #6d28d9;
+}
+
+.guide-download-button {
+    border-color: #047857;
+    background: #047857;
+}
+
+.guide-download-button:hover {
+    background: #065f46;
+}
+
+.no-action {
+    color: #94a3b8;
+}
+
+.guide-status {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.45rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.guide-status.ok {
+    background: #d1e7dd;
+    color: #0f5132;
+}
+
+.guide-status.under {
+    background: #f8d7da;
+    color: #842029;
+}
+
+.guide-status.over {
+    background: #fff3cd;
+    color: #664d03;
+}
+
+.guide-status.missing {
+    background: #e2e8f0;
+    color: #475569;
+}
+
+.guide-value {
+    display: block;
+    margin-top: 0.25rem;
+    color: #334155;
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.guide-panel {
+    margin-top: 1rem;
+    padding: 1rem;
+    border: 1px solid #d9dee7;
+    border-radius: 6px;
+    background: #fff;
+}
+
+.guide-panel-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.guide-panel-header strong {
+    color: #111827;
+    font-size: 1.15rem;
+}
+
+.guide-comparison {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(170px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.guide-comparison > div {
+    padding: 0.85rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: #f8fafc;
+}
+
+.guide-upload {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+@media (max-width: 900px) {
+    .fiscal-page {
+        padding: 1.5rem 1rem;
+    }
+
+    .filter-panel,
+    .year-summary,
+    .guide-comparison {
+        grid-template-columns: 1fr;
+    }
+
+    .guide-panel-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}

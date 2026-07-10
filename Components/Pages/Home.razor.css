@@ -1,0 +1,46 @@
+.home-page {
+    min-height: calc(100vh - 64px);
+    display: grid;
+    place-items: center;
+    gap: 1.5rem;
+    padding: 2rem;
+    text-align: center;
+}
+
+.brand-logo {
+    width: min(280px, 72vw);
+    height: auto;
+}
+
+.home-content h1 {
+    margin: 0;
+    color: #111827;
+    font-size: 2rem;
+    font-weight: 700;
+}
+
+.home-content p {
+    margin: 0.4rem 0 1.2rem;
+    color: #64748b;
+    font-size: 1rem;
+}
+
+.primary-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.4rem;
+    padding: 0.5rem 0.9rem;
+    border: 1px solid #155da8;
+    border-radius: 4px;
+    background: #155da8;
+    color: #fff;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.primary-link:hover {
+    background: #0f4f87;
+    color: #fff;
+    text-decoration: none;
+}

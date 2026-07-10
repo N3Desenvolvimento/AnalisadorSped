@@ -1,0 +1,351 @@
+@page "/dashboard-fiscal/entradas/{EmpresaId:int}/{Ano:int}/{Mes:int}"
+@rendermode InteractiveServer
+@using System.Globalization
+@using N3.AnalisadorFiscal.Data.Dashboard
+@using N3.AnalisadorFiscal.Data.Repositories
+@using N3.AnalisadorFiscal.Web.Services
+@inject IDashboardFiscalRepository DashboardFiscalRepository
+@inject ISimplesNacionalConsultaService SimplesNacionalConsultaService
+@inject NavigationManager Navigation
+
+<PageTitle>Fornecedores de Entradas</PageTitle>
+
+<section class="entries-page">
+    <div class="page-header">
+        <div>
+            <span class="eyebrow">Fornecedores de entradas</span>
+            <h1>@NomeMes/@Ano</h1>
+        </div>
+        <div class="header-actions">
+            <button type="button" class="secondary-button" @onclick="Voltar">Voltar</button>
+            @if (entradas.Count > 0)
+            {
+                <a class="primary-button download-button" href="@MontarUrlDownloadExcel()">Excel</a>
+            }
+            <button type="button" class="secondary-button" @onclick="MarcarIcmsZeradoAnteriorAsync" disabled="@(carregando || marcandoHistorico || entradas.Count == 0 || Mes <= 1)">
+                @(marcandoHistorico ? "Marcando..." : "Marcar possiveis Simples")
+            </button>
+            <button type="button" class="primary-button" @onclick="ConsultarSimplesAsync" disabled="@(carregando || consultandoSimples || entradas.Count == 0 || TotalPendentesSimples == 0)">
+                @(consultandoSimples ? "Consultando..." : "Consultar Simples")
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(mensagem))
+    {
+        <div class="message info">@mensagem</div>
+    }
+
+    @if (carregando)
+    {
+        <div class="message info">Carregando fornecedores...</div>
+    }
+    else
+    {
+        <section class="summary-grid">
+            <div>
+                <span>Fornecedores</span>
+                <strong>@EntradasFiltradas.Count</strong>
+            </div>
+            <div>
+                <span>Entradas</span>
+                <strong>@FormatarMoeda(EntradasFiltradas.Sum(e => e.ValorEntrada))</strong>
+            </div>
+            <div>
+                <span>Base ICMS</span>
+                <strong>@FormatarMoeda(EntradasFiltradas.Sum(e => e.BaseCalculo))</strong>
+            </div>
+            <div>
+                <span>ICMS credito</span>
+                <strong>@FormatarMoeda(EntradasFiltradas.Sum(e => e.ValorIcmsCredito))</strong>
+            </div>
+            <div>
+                <span>Aliq. efetiva</span>
+                <strong>@FormatarPercentual(CalcularAliquotaEfetivaTotal())</strong>
+            </div>
+            <div>
+                <span>Possiveis Simples</span>
+                <strong>@EntradasFiltradas.Count(FornecedorMarcadoComoPossivelSimples)</strong>
+            </div>
+        </section>
+
+        @if (entradas.Count == 0)
+        {
+            <div class="empty-state">Nenhuma entrada encontrada para esta competencia.</div>
+        }
+        else
+        {
+            <section class="filter-panel">
+                <div class="field supplier-filter">
+                    <label for="filtro-fornecedor">Filtrar fornecedor</label>
+                    <input id="filtro-fornecedor" type="search" @bind="filtroFornecedor" @bind:event="oninput" placeholder="Digite o nome do fornecedor" />
+                </div>
+                @if (!string.IsNullOrWhiteSpace(filtroFornecedor))
+                {
+                    <button type="button" class="secondary-button clear-filter-button" @onclick="LimparFiltroFornecedor">Limpar</button>
+                }
+            </section>
+
+            @if (EntradasFiltradas.Count == 0)
+            {
+                <div class="empty-state">Nenhum fornecedor encontrado para o filtro informado.</div>
+            }
+            else
+            {
+            <div class="table-wrap">
+                <table class="entries-table">
+                    <thead>
+                        <tr>
+                            <th class="code-col">Cod.</th>
+                            <th>Fornecedor</th>
+                            <th>Simples</th>
+                            <th>Historico</th>
+                            <th class="number">Entrada</th>
+                            <th class="number">Aliq. efetiva</th>
+                            <th class="number">Aliq. ICMS</th>
+                            <th class="number">Base ICMS</th>
+                            <th class="number">ICMS credito</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var entrada in EntradasFiltradas)
+                        {
+                            <tr class="@(FornecedorMarcadoComoPossivelSimples(entrada) ? "possible-simple-row" : null)">
+                                <td class="code-col">@entrada.CodigoParticipante</td>
+                                <td class="supplier-col">
+                                    <a class="supplier-link" href="@MontarUrlNotasFornecedor(entrada)">@entrada.NomeParticipante</a>
+                                    <span class="supplier-cnpj">@FormatarCnpj(entrada.Cnpj)</span>
+                                </td>
+                                <td>
+                                    <span class="simples-badge @ClasseSimples(entrada)">@TextoSimples(entrada)</span>
+                                    @if (!string.IsNullOrWhiteSpace(entrada.SimplesNacionalMensagem))
+                                    {
+                                        <small>@entrada.SimplesNacionalMensagem</small>
+                                    }
+                                </td>
+                                <td>
+                                    @if (FornecedorMarcadoComoPossivelSimples(entrada))
+                                    {
+                                        <span class="history-badge">Possivel Simples</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="history-empty">-</span>
+                                    }
+                                </td>
+                                <td class="number">@FormatarMoeda(entrada.ValorEntrada)</td>
+                                <td class="number">@FormatarPercentual(entrada.AliquotaEfetivaCredito)</td>
+                                <td class="number">@FormatarPercentual(entrada.AliquotaIcms)</td>
+                                <td class="number">@FormatarMoeda(entrada.BaseCalculo)</td>
+                                <td class="number">@FormatarMoeda(entrada.ValorIcmsCredito)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            }
+        }
+    }
+</section>
+
+@code {
+    [Parameter] public int EmpresaId { get; set; }
+    [Parameter] public int Ano { get; set; }
+    [Parameter] public int Mes { get; set; }
+
+    private static readonly CultureInfo CulturaBrasil = new("pt-BR");
+    private IReadOnlyList<DashboardEntradaParticipanteDto> entradas = [];
+    private bool carregando = true;
+    private bool consultandoSimples;
+    private bool marcandoHistorico;
+    private HashSet<string> fornecedoresIcmsZeradoAnterior = new(StringComparer.OrdinalIgnoreCase);
+    private string filtroFornecedor = string.Empty;
+    private string? mensagem;
+
+    private string NomeMes => CulturaBrasil.DateTimeFormat.GetMonthName(Mes);
+    private int TotalPendentesSimples => entradas.Count(e => e.SimplesNacionalConsultadoEm is null && SomenteDigitos(e.Cnpj).Length == 14);
+    private int TotalPossiveisSimplesHistorico => entradas.Count(FornecedorMarcadoComoPossivelSimples);
+    private IReadOnlyList<DashboardEntradaParticipanteDto> EntradasFiltradas => FiltrarEntradasPorFornecedor();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await CarregarEntradasAsync(null);
+    }
+
+    private async Task MarcarIcmsZeradoAnteriorAsync()
+    {
+        marcandoHistorico = true;
+        mensagem = "Analisando fornecedores com ICMS zerado nos meses anteriores...";
+
+        try
+        {
+            var codigos = await DashboardFiscalRepository.GetFornecedoresComIcmsZeradoMesesAnterioresAsync(EmpresaId, Ano, Mes);
+            fornecedoresIcmsZeradoAnterior = codigos
+                .Where(codigo => !string.IsNullOrWhiteSpace(codigo))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var totalMarcado = entradas.Count(FornecedorMarcadoComoPossivelSimples);
+            mensagem = totalMarcado > 0
+                ? $"{totalMarcado} fornecedor(es) marcado(s) como possiveis empresas do Simples por ICMS zerado em meses anteriores."
+                : "Nenhum fornecedor do mes atual teve ICMS zerado nos meses anteriores.";
+        }
+        catch (Exception ex)
+        {
+            mensagem = $"Nao foi possivel analisar o historico de ICMS zerado: {ex.Message}";
+        }
+        finally
+        {
+            marcandoHistorico = false;
+        }
+    }
+
+    private async Task ConsultarSimplesAsync()
+    {
+        consultandoSimples = true;
+        mensagem = "Consultando Simples Nacional dos fornecedores ainda nao consultados...";
+
+        try
+        {
+            var resumo = await SimplesNacionalConsultaService.ConsultarPendentesAsync(EmpresaId, entradas);
+            mensagem = $"Consulta concluida: {resumo.Consultados} fornecedor(es) consultado(s), {resumo.Optantes} optante(s), {resumo.NaoOptantes} nao optante(s), {resumo.SemResposta} sem resposta conclusiva.";
+            await CarregarEntradasAsync(mensagem);
+        }
+        catch (Exception ex)
+        {
+            mensagem = $"Nao foi possivel consultar o Simples Nacional: {ex.Message}";
+        }
+        finally
+        {
+            consultandoSimples = false;
+        }
+    }
+
+    private async Task CarregarEntradasAsync(string? mensagemAtual)
+    {
+        carregando = true;
+        mensagem = mensagemAtual;
+
+        try
+        {
+            entradas = await DashboardFiscalRepository.GetEntradasPorParticipanteAsync(EmpresaId, Ano, Mes);
+        }
+        catch (Exception ex)
+        {
+            mensagem = $"Nao foi possivel carregar os fornecedores: {ex.Message}";
+        }
+        finally
+        {
+            carregando = false;
+        }
+    }
+
+    private bool FornecedorMarcadoComoPossivelSimples(DashboardEntradaParticipanteDto entrada)
+    {
+        return SomenteDigitos(entrada.Cnpj).Length == 14 && fornecedoresIcmsZeradoAnterior.Contains(entrada.CodigoParticipante);
+    }
+
+    private IReadOnlyList<DashboardEntradaParticipanteDto> FiltrarEntradasPorFornecedor()
+    {
+        if (string.IsNullOrWhiteSpace(filtroFornecedor))
+        {
+            return entradas;
+        }
+
+        return entradas
+            .Where(entrada => entrada.NomeParticipante.Contains(filtroFornecedor, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+    }
+
+    private void LimparFiltroFornecedor()
+    {
+        filtroFornecedor = string.Empty;
+    }
+
+    private string MontarUrlDownloadExcel()
+    {
+        return $"/downloads/entradas-fornecedores/{EmpresaId}/{Ano}/{Mes}";
+    }
+
+    private string MontarUrlNotasFornecedor(DashboardEntradaParticipanteDto entrada)
+    {
+        return $"/dashboard-fiscal/entradas/{EmpresaId}/{Ano}/{Mes}/fornecedor/{Uri.EscapeDataString(entrada.CodigoParticipante)}";
+    }
+
+    private decimal CalcularAliquotaEfetivaTotal()
+    {
+        var entradasCalculo = EntradasFiltradas;
+        var valorEntrada = entradasCalculo.Sum(e => e.ValorEntrada);
+        if (valorEntrada == 0)
+        {
+            return 0;
+        }
+
+        return entradasCalculo.Sum(e => e.ValorIcmsCredito) / valorEntrada * 100;
+    }
+
+    private void Voltar()
+    {
+        Navigation.NavigateTo("/dashboard-fiscal");
+    }
+
+    private static string TextoSimples(DashboardEntradaParticipanteDto entrada)
+    {
+        if (SomenteDigitos(entrada.Cnpj).Length != 14)
+        {
+            return "Sem CNPJ";
+        }
+
+        return entrada.SimplesNacional switch
+        {
+            true => "Sim",
+            false when entrada.SimplesNacionalConsultadoEm is not null => "Nao",
+            _ => "Nao consultado"
+        };
+    }
+
+    private static string ClasseSimples(DashboardEntradaParticipanteDto entrada)
+    {
+        if (SomenteDigitos(entrada.Cnpj).Length != 14)
+        {
+            return "neutral";
+        }
+
+        return entrada.SimplesNacional switch
+        {
+            true => "yes",
+            false when entrada.SimplesNacionalConsultadoEm is not null => "no",
+            _ => "pending"
+        };
+    }
+
+    private static string FormatarCnpj(string? cnpj)
+    {
+        var digitos = SomenteDigitos(cnpj);
+        if (digitos.Length != 14)
+        {
+            return "-";
+        }
+
+        return $"{digitos[..2]}.{digitos.Substring(2, 3)}.{digitos.Substring(5, 3)}/{digitos.Substring(8, 4)}-{digitos.Substring(12, 2)}";
+    }
+
+    private static string SomenteDigitos(string? valor)
+    {
+        if (string.IsNullOrWhiteSpace(valor))
+        {
+            return string.Empty;
+        }
+
+        return new string(valor.Where(char.IsDigit).ToArray());
+    }
+
+    private static string FormatarMoeda(decimal valor)
+    {
+        return valor.ToString("C", CulturaBrasil);
+    }
+
+    private static string FormatarPercentual(decimal valor)
+    {
+        return valor.ToString("N2", CulturaBrasil) + "%";
+    }
+}

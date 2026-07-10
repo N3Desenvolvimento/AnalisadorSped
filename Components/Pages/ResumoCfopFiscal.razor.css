@@ -1,0 +1,223 @@
+.cfop-page {
+    max-width: 1200px;
+    padding: 2.5rem 2rem;
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.page-header h1 {
+    margin: 0;
+    font-size: 2rem;
+    font-weight: 700;
+    color: #111827;
+}
+
+.eyebrow {
+    display: block;
+    margin-bottom: 0.25rem;
+    color: #64748b;
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.header-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.excel-button,
+.secondary-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.3rem;
+    padding: 0.4rem 0.8rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    background: #fff;
+    color: #334155;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.excel-button {
+    border-color: #166534;
+    background: #166534;
+    color: #fff;
+    text-decoration: none;
+}
+
+.excel-button:hover {
+    background: #14532d;
+    color: #fff;
+    text-decoration: none;
+}
+
+.secondary-button:hover {
+    background: #f8fafc;
+}
+
+.operation-tabs {
+    display: inline-flex;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+    padding: 0.25rem;
+    border: 1px solid #d9dee7;
+    border-radius: 6px;
+    background: #fff;
+}
+
+.operation-tab {
+    min-height: 2.25rem;
+    padding: 0.35rem 0.8rem;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: #334155;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.operation-tab.active {
+    border-color: #155da8;
+    background: #155da8;
+    color: #fff;
+}
+
+.operation-tab:hover:not(.active) {
+    background: #f1f5f9;
+}
+
+.detail-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2rem;
+    padding: 0.35rem 0.65rem;
+    border: 1px solid #0f766e;
+    border-radius: 4px;
+    background: #0f766e;
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.detail-button:hover {
+    background: #115e59;
+    color: #fff;
+    text-decoration: none;
+}
+
+.message.info {
+    margin-bottom: 1rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid #b6d4fe;
+    border-radius: 4px;
+    background: #cff4fc;
+    color: #055160;
+}
+
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(150px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.summary-grid > div {
+    padding: 1rem;
+    border: 1px solid #d9dee7;
+    border-radius: 6px;
+    background: #fff;
+}
+
+.summary-label {
+    display: block;
+    margin-bottom: 0.35rem;
+    color: #64748b;
+    font-size: 0.85rem;
+}
+
+.summary-grid strong {
+    color: #111827;
+    font-size: 1.15rem;
+}
+
+.cfop-table-wrap {
+    overflow-x: auto;
+    border: 1px solid #d9dee7;
+    border-radius: 6px;
+    background: #fff;
+}
+
+.cfop-table {
+    width: 100%;
+    min-width: 760px;
+    border-collapse: collapse;
+}
+
+.cfop-table th,
+.cfop-table td {
+    padding: 0.75rem 0.85rem;
+    border-bottom: 1px solid #e2e8f0;
+    text-align: left;
+    vertical-align: middle;
+}
+
+.cfop-table th {
+    background: #f8fafc;
+    color: #334155;
+    font-size: 0.82rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.cfop-table tfoot td {
+    border-top: 2px solid #cbd5e1;
+    border-bottom: 0;
+    background: #f8fafc;
+    color: #111827;
+}
+
+.cfop-table tr:last-child td {
+    border-bottom: 0;
+}
+
+.cfop-table .number {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.cfop-table .highlight {
+    color: #155da8;
+    font-weight: 700;
+}
+
+@media (max-width: 900px) {
+    .cfop-page {
+        padding: 1.5rem 1rem;
+    }
+
+    .page-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .header-actions {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .summary-grid {
+        grid-template-columns: 1fr;
+    }
+}

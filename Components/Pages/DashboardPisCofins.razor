@@ -1,0 +1,118 @@
+@page "/dashboard-pis-cofins"
+@rendermode InteractiveServer
+@using System.Globalization
+@using N3.AnalisadorFiscal.Data.Dashboard
+@using N3.AnalisadorFiscal.Data.Repositories
+@inject IDashboardFiscalRepository DashboardFiscalRepository
+@inject IDashboardPisCofinsRepository DashboardPisCofinsRepository
+
+<PageTitle>Dashboard PIS/COFINS</PageTitle>
+
+<section class="contrib-page">
+    <div class="page-header">
+        <h1>Dashboard PIS/COFINS</h1>
+    </div>
+
+    <section class="filter-panel">
+        <div class="field empresa-field">
+            <label for="empresaContrib">Empresa</label>
+            <select id="empresaContrib" @bind="empresaIdSelecionada">
+                <option value="0">Selecione uma empresa</option>
+                @foreach (var empresa in empresas)
+                {
+                    <option value="@empresa.Id">@empresa.RazaoSocial - @empresa.Cnpj</option>
+                }
+            </select>
+        </div>
+
+        <div class="field ano-field">
+            <label for="anoContrib">Ano</label>
+            <select id="anoContrib" @bind="anoSelecionado">
+                @foreach (var ano in anos)
+                {
+                    <option value="@ano">@ano</option>
+                }
+            </select>
+        </div>
+
+        <button type="button" class="primary-button" @onclick="CarregarAsync" disabled="@(empresaIdSelecionada == 0 || carregando)">
+            @(carregando ? "Carregando..." : "Atualizar")
+        </button>
+    </section>
+
+    @if (!string.IsNullOrWhiteSpace(mensagem))
+    {
+        <div class="message info">@mensagem</div>
+    }
+
+    @if (meses.Count > 0)
+    {
+        <section class="year-summary">
+            <div><span class="summary-label">Ano</span><strong>@anoSelecionado</strong></div>
+            <div><span class="summary-label">Meses importados</span><strong>@meses.Count / 12</strong></div>
+            <div><span class="summary-label">PIS a pagar no ano</span><strong>@FormatarMoeda(meses.Sum(x => x.PisAPagar))</strong></div>
+            <div><span class="summary-label">COFINS a pagar no ano</span><strong>@FormatarMoeda(meses.Sum(x => x.CofinsAPagar))</strong></div>
+            <div><span class="summary-label">Total a pagar</span><strong>@FormatarMoeda(meses.Sum(x => x.TotalAPagar))</strong></div>
+        </section>
+
+        <div class="months-table-wrap">
+            <table class="months-table">
+                <thead>
+                    <tr>
+                        <th>Mês</th><th>Arquivo</th>
+                        <th class="number">Débito PIS</th><th class="number">Crédito PIS</th><th class="number">PIS a pagar</th>
+                        <th class="number">Débito COFINS</th><th class="number">Crédito COFINS</th><th class="number">COFINS a pagar</th>
+                        <th class="number">Total a pagar</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var mes in meses)
+                    {
+                        <tr>
+                            <td><strong>@mes.NomeMes</strong></td>
+                            <td class="file-name" title="@mes.NomeArquivo">@mes.NomeArquivo</td>
+                            <td class="number">@FormatarMoeda(mes.DebitoPis)</td>
+                            <td class="number credit">@FormatarMoeda(mes.CreditoPis)</td>
+                            <td class="number payable">@FormatarMoeda(mes.PisAPagar)</td>
+                            <td class="number">@FormatarMoeda(mes.DebitoCofins)</td>
+                            <td class="number credit">@FormatarMoeda(mes.CreditoCofins)</td>
+                            <td class="number payable">@FormatarMoeda(mes.CofinsAPagar)</td>
+                            <td class="number total">@FormatarMoeda(mes.TotalAPagar)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    private readonly int[] anos = Enumerable.Range(DateTime.Today.Year - 10, 11).Reverse().ToArray();
+    private IReadOnlyList<EmpresaOpcaoDto> empresas = [];
+    private IReadOnlyList<DashboardPisCofinsMesDto> meses = [];
+    private int empresaIdSelecionada;
+    private int anoSelecionado = DateTime.Today.Year;
+    private bool carregando;
+    private string? mensagem;
+
+    protected override async Task OnInitializedAsync() => empresas = await DashboardFiscalRepository.GetEmpresasAsync();
+
+    private async Task CarregarAsync()
+    {
+        carregando = true;
+        mensagem = null;
+        try
+        {
+            meses = await DashboardPisCofinsRepository.GetMesesImportadosAsync(empresaIdSelecionada, anoSelecionado);
+            if (meses.Count == 0) mensagem = "Nenhuma EFD Contribuições importada para a empresa e o ano selecionados.";
+        }
+        catch (Exception ex)
+        {
+            meses = [];
+            mensagem = $"Não foi possível carregar o dashboard: {ex.Message}";
+        }
+        finally { carregando = false; }
+    }
+
+    private static string FormatarMoeda(decimal valor) => valor.ToString("C2", CultureInfo.GetCultureInfo("pt-BR"));
+}

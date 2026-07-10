@@ -1,0 +1,391 @@
+@page "/dashboard-fiscal"
+@rendermode InteractiveServer
+@using System.Globalization
+@using Microsoft.AspNetCore.Components.Forms
+@using N3.AnalisadorFiscal.Data.Dashboard
+@using N3.AnalisadorFiscal.Data.Repositories
+@using N3.AnalisadorFiscal.Web.Services
+@inject IDashboardFiscalRepository DashboardFiscalRepository
+@inject ISpedArquivoRepository SpedArquivoRepository
+@inject IGuiaIcmsPdfLeituraService GuiaIcmsPdfLeituraService
+
+<PageTitle>Dashboard Fiscal</PageTitle>
+
+<section class="fiscal-page">
+    <div class="page-header">
+        <h1>Dashboard Fiscal</h1>
+    </div>
+
+    <section class="filter-panel">
+        <div class="field empresa-field">
+            <label for="empresa">Empresa</label>
+            <select id="empresa" @bind="empresaIdSelecionada">
+                <option value="0">Selecione uma empresa</option>
+                @foreach (var empresa in empresas)
+                {
+                    <option value="@empresa.Id">@empresa.RazaoSocial - @empresa.Cnpj</option>
+                }
+            </select>
+        </div>
+
+        <div class="field ano-field">
+            <label for="ano">Ano</label>
+            <select id="ano" @bind="anoSelecionado">
+                @foreach (var ano in anos)
+                {
+                    <option value="@ano">@ano</option>
+                }
+            </select>
+        </div>
+
+        <button type="button" class="primary-button" @onclick="CarregarDashboardAsync" disabled="@(empresaIdSelecionada == 0 || carregando || excluindo)">
+            @(carregando ? "Carregando..." : "Atualizar")
+        </button>
+    </section>
+
+    @if (!string.IsNullOrWhiteSpace(mensagem))
+    {
+        <div class="message info">@mensagem</div>
+    }
+
+    @if (dashboardAnual is not null)
+    {
+        <section class="year-summary">
+            <div>
+                <span class="summary-label">Ano fiscal</span>
+                <strong>@dashboardAnual.Ano</strong>
+            </div>
+            <div>
+                <span class="summary-label">Meses importados</span>
+                <strong>@dashboardAnual.Meses.Count(m => m.ArquivoImportado) / 12</strong>
+            </div>
+            <div>
+                <span class="summary-label">ICMS a recolher no ano</span>
+                <strong>@FormatarMoeda(dashboardAnual.Meses.Sum(m => m.IcmsARecolher))</strong>
+            </div>
+        </section>
+
+        <div class="months-table-wrap">
+            <table class="months-table">
+                <thead>
+                    <tr>
+                        <th>Mes</th>
+                        <th>Status</th>
+                        <th>Arquivo</th>
+                        <th class="number">Entradas</th>
+                        <th class="number">Saidas</th>
+                        <th class="number">Debitado</th>
+                        <th class="number">Creditado</th>
+                        <th class="number">A recolher</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var mes in dashboardAnual.Meses.Where(m => m.ArquivoImportado).OrderByDescending(m => m.Mes))
+                    {
+                        <tr class="@(mes.ArquivoImportado ? "imported" : "empty")">
+                            <td>
+                                <strong>@mes.Mes.ToString("00")</strong>
+                            </td>
+                            <td>
+                                <span class="status-pill">@(mes.ArquivoImportado ? "Importado" : "Pendente")</span>
+                            </td>
+                            <td class="file-cell" title="@mes.NomeArquivo">
+                                @(mes.ArquivoImportado ? mes.NomeArquivo : "Nenhum arquivo importado")
+                            </td>
+                            <td class="number">@FormatarMoeda(mes.ValorTotalEntradas)</td>
+                            <td class="number">@FormatarMoeda(mes.ValorTotalSaidas)</td>
+                            <td class="number">@FormatarMoeda(mes.IcmsDebitado)</td>
+                            <td class="number">@FormatarMoeda(mes.IcmsCreditado)</td>
+                            <td class="number highlight">@FormatarMoeda(mes.IcmsARecolher)</td>
+                        </tr>
+                        <tr class="actions-row @(mes.ArquivoImportado ? "imported" : "empty")">
+                            <td></td>
+                            <td colspan="7">
+                                <div class="table-actions">
+                                    <a class="analyze-entries-button" href="@MontarUrlAnaliseEntradas(mes)">Fornecedores</a>
+                                    <a class="cfop-summary-button" href="@MontarUrlResumoCfop(mes)">CFOP</a>
+                                    <a class="products-button" href="@MontarUrlProdutos(mes)">Produtos</a>
+                                    <a class="analysis-button" href="@MontarUrlAnaliseSeisMeses(mes)">6 meses</a>
+                                    <a class="pdf-button" href="@MontarUrlPdfApuracao(mes)">PDF ICMS</a>
+                                    <button type="button" class="guide-button" @onclick="() => AbrirGuia(mes)" disabled="@(carregando || excluindo || salvandoGuia)">Guia ICMS</button>
+                                    @if (mes.ValorPrincipalGuiaIcms.HasValue)
+                                    {
+                                        <a class="guide-download-button" href="@MontarUrlDownloadGuia(mes)">Baixar guia</a>
+                                    }
+                                    <button type="button" class="delete-month-button" @onclick="() => ExcluirMesAsync(mes)" disabled="@(excluindo || carregando)">
+                                        @(excluindoMes == mes.Mes ? "Excluindo..." : "Excluir")
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @if (mesGuiaSelecionado is not null)
+        {
+            <section class="guide-panel">
+                <div class="guide-panel-header">
+                    <div>
+                        <span class="summary-label">Guia ICMS</span>
+                        <strong>@mesGuiaSelecionado.NomeMes/@anoSelecionado</strong>
+                    </div>
+                    <button type="button" class="secondary-button" @onclick="FecharGuia" disabled="@salvandoGuia">Fechar</button>
+                </div>
+
+                <div class="guide-comparison">
+                    <div>
+                        <span class="summary-label">ICMS a recolher</span>
+                        <strong>@FormatarMoeda(mesGuiaSelecionado.IcmsARecolher)</strong>
+                    </div>
+                    <div>
+                        <span class="summary-label">Valor principal lido</span>
+                        <strong>@(valorPrincipalLido.HasValue ? FormatarMoeda(valorPrincipalLido.Value) : "-")</strong>
+                    </div>
+                    <div>
+                        <span class="summary-label">Situacao</span>
+                        <strong>@(situacaoGuiaAtual ?? "Aguardando PDF")</strong>
+                    </div>
+                </div>
+
+                <div class="guide-upload">
+                    <InputFile OnChange="SelecionarGuiaPdfAsync" accept="application/pdf" disabled="@salvandoGuia" />
+                    <button type="button" class="primary-button" @onclick="SalvarGuiaPdfAsync" disabled="@(salvandoGuia || pdfGuiaSelecionado is null || valorPrincipalLido is null)">
+                        @(salvandoGuia ? "Salvando..." : "Salvar PDF conferido")
+                    </button>
+                </div>
+            </section>
+        }
+    }
+</section>
+
+@code {
+    private static readonly CultureInfo CulturaBrasil = new("pt-BR");
+    private IReadOnlyList<EmpresaOpcaoDto> empresas = [];
+    private IReadOnlyList<int> anos = [];
+    private DashboardFiscalAnualDto? dashboardAnual;
+    private int empresaIdSelecionada;
+    private int anoSelecionado = DateTime.Today.Year;
+    private bool carregando;
+    private bool excluindo;
+    private bool salvandoGuia;
+    private int? excluindoMes;
+    private DashboardFiscalMesDto? mesGuiaSelecionado;
+    private IBrowserFile? pdfGuiaSelecionado;
+    private byte[] pdfGuiaBytes = [];
+    private decimal? valorPrincipalLido;
+    private string? situacaoGuiaAtual;
+    private string? mensagem;
+
+    protected override async Task OnInitializedAsync()
+    {
+        empresas = await DashboardFiscalRepository.GetEmpresasAsync();
+        anos = Enumerable.Range(DateTime.Today.Year - 5, 7).Reverse().ToArray();
+        mensagem = empresas.Count == 0 ? "Nenhuma empresa importada ainda." : null;
+    }
+
+    private async Task CarregarDashboardAsync()
+    {
+        if (empresaIdSelecionada == 0)
+        {
+            mensagem = "Selecione uma empresa.";
+            return;
+        }
+
+        carregando = true;
+        mensagem = null;
+        dashboardAnual = null;
+
+        try
+        {
+            dashboardAnual = await DashboardFiscalRepository.GetDashboardAnualAsync(empresaIdSelecionada, anoSelecionado);
+        }
+        catch (Exception ex)
+        {
+            mensagem = $"Nao foi possivel carregar o dashboard: {ex.Message}";
+        }
+        finally
+        {
+            carregando = false;
+        }
+    }
+
+    private string MontarUrlAnaliseEntradas(DashboardFiscalMesDto mes)
+    {
+        return $"/dashboard-fiscal/entradas/{empresaIdSelecionada}/{anoSelecionado}/{mes.Mes}";
+    }
+
+    private string MontarUrlResumoCfop(DashboardFiscalMesDto mes)
+    {
+        return $"/dashboard-fiscal/cfop/{empresaIdSelecionada}/{anoSelecionado}/{mes.Mes}";
+    }
+
+    private string MontarUrlProdutos(DashboardFiscalMesDto mes)
+    {
+        return $"/dashboard-fiscal/produtos/{empresaIdSelecionada}/{anoSelecionado}/{mes.Mes}";
+    }
+
+    private string MontarUrlAnaliseSeisMeses(DashboardFiscalMesDto mes)
+    {
+        return $"/dashboard-fiscal/analise-12-meses/{empresaIdSelecionada}/{anoSelecionado}/{mes.Mes}";
+    }
+
+    private string MontarUrlPdfApuracao(DashboardFiscalMesDto mes)
+    {
+        return $"/downloads/apuracao-icms/{empresaIdSelecionada}/{anoSelecionado}/{mes.Mes}";
+    }
+
+    private string MontarUrlDownloadGuia(DashboardFiscalMesDto mes)
+    {
+        return $"/downloads/guia-icms/{empresaIdSelecionada}/{anoSelecionado}/{mes.Mes}";
+    }
+
+    private void AbrirGuia(DashboardFiscalMesDto mes)
+    {
+        mesGuiaSelecionado = mes;
+        pdfGuiaSelecionado = null;
+        pdfGuiaBytes = [];
+        valorPrincipalLido = mes.ValorPrincipalGuiaIcms;
+        situacaoGuiaAtual = mes.SituacaoGuiaIcms;
+        mensagem = null;
+    }
+
+    private void FecharGuia()
+    {
+        mesGuiaSelecionado = null;
+    }
+
+    private async Task SelecionarGuiaPdfAsync(InputFileChangeEventArgs e)
+    {
+        pdfGuiaSelecionado = e.File;
+        valorPrincipalLido = null;
+        situacaoGuiaAtual = null;
+        mensagem = null;
+
+        if (pdfGuiaSelecionado.ContentType != "application/pdf" && !pdfGuiaSelecionado.Name.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+        {
+            mensagem = "Selecione um PDF da guia.";
+            pdfGuiaSelecionado = null;
+            return;
+        }
+
+        await using var origem = pdfGuiaSelecionado.OpenReadStream(15 * 1024 * 1024);
+        using var destino = new MemoryStream();
+        await origem.CopyToAsync(destino);
+        pdfGuiaBytes = destino.ToArray();
+
+        valorPrincipalLido = GuiaIcmsPdfLeituraService.LerValorPrincipal(pdfGuiaBytes);
+        situacaoGuiaAtual = valorPrincipalLido.HasValue && mesGuiaSelecionado is not null
+            ? CalcularSituacaoGuia(mesGuiaSelecionado.IcmsARecolher, valorPrincipalLido.Value)
+            : "Valor principal nao encontrado";
+    }
+
+    private async Task SalvarGuiaPdfAsync()
+    {
+        if (mesGuiaSelecionado is null || pdfGuiaSelecionado is null || valorPrincipalLido is null)
+        {
+            return;
+        }
+
+        salvandoGuia = true;
+        mensagem = null;
+
+        try
+        {
+            var diferenca = valorPrincipalLido.Value - mesGuiaSelecionado.IcmsARecolher;
+            var situacao = CalcularSituacaoGuia(mesGuiaSelecionado.IcmsARecolher, valorPrincipalLido.Value);
+
+            await DashboardFiscalRepository.SalvarGuiaIcmsPdfAsync(new DashboardGuiaIcmsPdfDto
+            {
+                EmpresaId = empresaIdSelecionada,
+                Ano = anoSelecionado,
+                Mes = mesGuiaSelecionado.Mes,
+                NomeArquivo = Path.GetFileName(pdfGuiaSelecionado.Name),
+                ArquivoPdf = pdfGuiaBytes,
+                ValorPrincipal = valorPrincipalLido.Value,
+                IcmsARecolher = mesGuiaSelecionado.IcmsARecolher,
+                Diferenca = diferenca,
+                Situacao = situacao,
+                ConferidoEm = DateTime.Now
+            });
+
+            dashboardAnual = await DashboardFiscalRepository.GetDashboardAnualAsync(empresaIdSelecionada, anoSelecionado);
+            mesGuiaSelecionado = dashboardAnual.Meses.FirstOrDefault(item => item.Mes == mesGuiaSelecionado.Mes);
+            situacaoGuiaAtual = situacao;
+            mensagem = $"Guia PDF salva. Situacao: {situacao}.";
+        }
+        catch (Exception ex)
+        {
+            mensagem = $"Nao foi possivel salvar a guia PDF: {ex.Message}";
+        }
+        finally
+        {
+            salvandoGuia = false;
+        }
+    }
+
+    private async Task ExcluirMesAsync(DashboardFiscalMesDto mes)
+    {
+        if (!mes.ArquivoImportado || empresaIdSelecionada == 0)
+        {
+            return;
+        }
+
+        excluindo = true;
+        excluindoMes = mes.Mes;
+        mensagem = null;
+
+        try
+        {
+            var arquivosExcluidos = await SpedArquivoRepository.DeleteByEmpresaCompetenciaAsync(empresaIdSelecionada, anoSelecionado, mes.Mes);
+            mensagem = arquivosExcluidos > 0
+                ? $"Competencia {mes.NomeMes}/{anoSelecionado} excluida com sucesso."
+                : $"Nenhum arquivo encontrado para {mes.NomeMes}/{anoSelecionado}.";
+
+            dashboardAnual = await DashboardFiscalRepository.GetDashboardAnualAsync(empresaIdSelecionada, anoSelecionado);
+        }
+        catch (Exception ex)
+        {
+            mensagem = $"Nao foi possivel excluir a competencia {mes.NomeMes}/{anoSelecionado}: {ex.Message}";
+        }
+        finally
+        {
+            excluindo = false;
+            excluindoMes = null;
+        }
+    }
+
+    private static string FormatarMoeda(decimal valor)
+    {
+        return valor.ToString("C", CulturaBrasil);
+    }
+
+    private static string TextoGuia(DashboardFiscalMesDto mes)
+    {
+        return string.IsNullOrWhiteSpace(mes.SituacaoGuiaIcms) ? "Nao enviada" : mes.SituacaoGuiaIcms;
+    }
+
+    private static string ClasseGuia(DashboardFiscalMesDto mes)
+    {
+        return mes.SituacaoGuiaIcms switch
+        {
+            "Conferido" => "ok",
+            "Pago a maior" => "over",
+            "Pago a menor" => "under",
+            _ => "missing"
+        };
+    }
+
+    private static string CalcularSituacaoGuia(decimal icmsARecolher, decimal valorPrincipal)
+    {
+        var diferenca = valorPrincipal - icmsARecolher;
+        if (Math.Abs(diferenca) <= 0.01m)
+        {
+            return "Conferido";
+        }
+
+        return diferenca > 0 ? "Pago a maior" : "Pago a menor";
+    }
+}
+

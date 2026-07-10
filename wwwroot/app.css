@@ -1,0 +1,29 @@
+﻿html, body {
+    min-height: 100%;
+    margin: 0;
+    background: #f6f8fb;
+    font-family: Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+a {
+    color: #155da8;
+}
+
+h1:focus {
+    outline: none;
+}
+
+.validation-message {
+    color: #b42318;
+}
+
+.blazor-error-boundary {
+    padding: 1rem;
+    border-radius: 6px;
+    background: #b42318;
+    color: white;
+}
+
+.blazor-error-boundary::after {
+    content: "Ocorreu um erro.";
+}

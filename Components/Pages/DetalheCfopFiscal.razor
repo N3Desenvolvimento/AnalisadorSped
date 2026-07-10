@@ -1,0 +1,154 @@
+@page "/dashboard-fiscal/cfop/{EmpresaId:int}/{Ano:int}/{Mes:int}/{TipoOperacao}/detalhe/{Cfop}"
+@rendermode InteractiveServer
+@using System.Globalization
+@using N3.AnalisadorFiscal.Data.Dashboard
+@using N3.AnalisadorFiscal.Data.Repositories
+@inject IDashboardFiscalRepository DashboardFiscalRepository
+@inject NavigationManager Navigation
+
+<PageTitle>Detalhe por CFOP</PageTitle>
+
+<section class="cfop-detail-page">
+    <div class="page-header">
+        <div>
+            <span class="eyebrow">@Mes.ToString("00")/@Ano</span>
+            <h1>@TituloTipoOperacao - CFOP @Cfop</h1>
+        </div>
+        <div class="header-actions">
+            <a class="excel-button" href="@MontarUrlExcel()">Baixar Excel</a>
+            <button type="button" class="secondary-button" @onclick="Voltar">Voltar</button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(mensagem))
+    {
+        <div class="message info">@mensagem</div>
+    }
+
+    @if (carregando)
+    {
+        <div class="message info">Carregando detalhe do CFOP...</div>
+    }
+    else if (itens.Count > 0)
+    {
+        <div class="cfop-table-wrap">
+            <table class="cfop-table">
+                <thead>
+                    <tr>
+                        <th>CST ICMS</th>
+                        <th class="number">Valor operacao</th>
+                        <th class="number">Base ICMS</th>
+                        <th class="number">Valor ICMS</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in itens)
+                    {
+                        <tr>
+                            <td><strong>@item.CstIcms</strong></td>
+                            <td class="number">@FormatarMoeda(item.ValorOperacao)</td>
+                            <td class="number">@FormatarMoeda(item.BaseIcms)</td>
+                            <td class="number highlight">@FormatarMoeda(item.ValorIcms)</td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td><strong>Total CFOP @Cfop</strong></td>
+                        <td class="number"><strong>@FormatarMoeda(itens.Sum(item => item.ValorOperacao))</strong></td>
+                        <td class="number"><strong>@FormatarMoeda(itens.Sum(item => item.BaseIcms))</strong></td>
+                        <td class="number highlight"><strong>@FormatarMoeda(itens.Sum(item => item.ValorIcms))</strong></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    private static readonly CultureInfo CulturaBrasil = new("pt-BR");
+    private IReadOnlyList<DashboardFiscalCfopCstDto> itens = [];
+    private bool carregando;
+    private string? mensagem;
+
+    [Parameter] public int EmpresaId { get; set; }
+    [Parameter] public int Ano { get; set; }
+    [Parameter] public int Mes { get; set; }
+    [Parameter] public string TipoOperacao { get; set; } = "0";
+    [Parameter] public string Cfop { get; set; } = string.Empty;
+
+    private string TituloTipoOperacao => TipoOperacao switch
+    {
+        "1" => "Saidas",
+        "TE" => "Transferencia entrada",
+        "TS" => "Transferencia saida",
+        _ => "Entradas"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        carregando = true;
+
+        try
+        {
+            var dashboard = await DashboardFiscalRepository.GetDashboardAsync(EmpresaId, new DateTime(Ano, Mes, 1));
+            itens = dashboard.ResumoPorCfopCst
+                .Where(item => PertenceAoTipoOperacao(item) &&
+                    string.Equals(item.Cfop, Cfop, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(item => item.CstIcms)
+                .ToArray();
+
+            if (itens.Count == 0)
+            {
+                mensagem = "Nenhum detalhe encontrado para este CFOP.";
+            }
+        }
+        catch (Exception ex)
+        {
+            mensagem = $"Nao foi possivel carregar o detalhe por CFOP: {ex.Message}";
+        }
+        finally
+        {
+            carregando = false;
+        }
+    }
+
+    private void Voltar()
+    {
+        Navigation.NavigateTo($"/dashboard-fiscal/cfop/{EmpresaId}/{Ano}/{Mes}");
+    }
+
+    private string MontarUrlExcel()
+    {
+        return $"/downloads/cfop-detalhe/{EmpresaId}/{Ano}/{Mes}/{TipoOperacao}/{Uri.EscapeDataString(Cfop)}";
+    }
+
+    private static string FormatarMoeda(decimal valor)
+    {
+        return valor.ToString("C", CulturaBrasil);
+    }
+
+    private bool PertenceAoTipoOperacao(DashboardFiscalCfopCstDto item)
+    {
+        var transferencia = CfopTransferencia(item.Cfop);
+
+        return TipoOperacao switch
+        {
+            "0" => item.IndicadorOperacao == "0" && !transferencia,
+            "1" => item.IndicadorOperacao == "1" && !transferencia,
+            "TE" => item.IndicadorOperacao == "0" && transferencia,
+            "TS" => item.IndicadorOperacao == "1" && transferencia,
+            _ => false
+        };
+    }
+
+    private static bool CfopTransferencia(string cfop)
+    {
+        cfop = cfop.Trim();
+
+        return cfop is "1151" or "1152" or "1408"
+            or "2151" or "2152" or "2408" or "2409"
+            or "5151" or "5152" or "5408" or "5409"
+            or "6151" or "6152" or "6408" or "6409";
+    }
+}

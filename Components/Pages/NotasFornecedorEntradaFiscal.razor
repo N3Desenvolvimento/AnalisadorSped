@@ -1,0 +1,160 @@
+﻿@page "/dashboard-fiscal/entradas/{EmpresaId:int}/{Ano:int}/{Mes:int}/fornecedor/{CodigoParticipante}"
+@rendermode InteractiveServer
+@using System.Globalization
+@using N3.AnalisadorFiscal.Data.Dashboard
+@using N3.AnalisadorFiscal.Data.Repositories
+@inject IDashboardFiscalRepository DashboardFiscalRepository
+@inject NavigationManager Navigation
+
+<PageTitle>Notas do Fornecedor</PageTitle>
+
+<section class="entries-page">
+    <div class="page-header">
+        <div>
+            <span class="eyebrow">Notas do fornecedor</span>
+            <h1>@TituloFornecedor</h1>
+        </div>
+        <button type="button" class="secondary-button" @onclick="Voltar">Voltar</button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(mensagem))
+    {
+        <div class="message info">@mensagem</div>
+    }
+
+    @if (carregando)
+    {
+        <div class="message info">Carregando notas...</div>
+    }
+    else if (notas.Count == 0)
+    {
+        <div class="empty-state">Nenhuma nota encontrada para este fornecedor na competencia.</div>
+    }
+    else
+    {
+        <section class="summary-grid notes-summary">
+            <div>
+                <span>Notas</span>
+                <strong>@notas.Count</strong>
+            </div>
+            <div>
+                <span>Valor das notas</span>
+                <strong>@FormatarMoeda(notas.Sum(n => n.ValorDocumento))</strong>
+            </div>
+            <div>
+                <span>Base de calculo</span>
+                <strong>@FormatarMoeda(notas.Sum(n => n.ValorBaseIcms))</strong>
+            </div>
+            <div>
+                <span>ICMS credito</span>
+                <strong>@FormatarMoeda(notas.Sum(n => n.ValorIcmsCredito))</strong>
+            </div>
+            <div>
+                <span>Aliquota efetiva</span>
+                <strong>@FormatarPercentual(CalcularAliquotaEfetivaTotal())</strong>
+            </div>
+        </section>
+
+        <div class="table-wrap">
+            <table class="entries-table notes-table">
+                <thead>
+                    <tr>
+                        <th>Data</th>
+                        <th>Modelo</th>
+                        <th>Serie</th>
+                        <th>Nota</th>
+                        <th>Situacao</th>
+                        <th>Chave NFe</th>
+                        <th class="number">Valor nota</th>
+                        <th class="number">Base ICMS</th>
+                        <th class="number">ICMS credito</th>
+                        <th class="number">Aliquota efetiva</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var nota in notas)
+                    {
+                        <tr>
+                            <td>@FormatarData(nota.DataDocumento)</td>
+                            <td>@nota.CodigoModelo</td>
+                            <td>@nota.Serie</td>
+                            <td>@nota.NumeroDocumento</td>
+                            <td>@nota.CodigoSituacao</td>
+                            <td class="key-cell">@nota.ChaveNfe</td>
+                            <td class="number">@FormatarMoeda(nota.ValorDocumento)</td>
+                            <td class="number">@FormatarMoeda(nota.ValorBaseIcms)</td>
+                            <td class="number">@FormatarMoeda(nota.ValorIcmsCredito)</td>
+                            <td class="number">@FormatarPercentual(nota.AliquotaEfetivaCredito)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter] public int EmpresaId { get; set; }
+    [Parameter] public int Ano { get; set; }
+    [Parameter] public int Mes { get; set; }
+    [Parameter] public string CodigoParticipante { get; set; } = string.Empty;
+
+    private static readonly CultureInfo CulturaBrasil = new("pt-BR");
+    private IReadOnlyList<DashboardNotaEntradaFornecedorDto> notas = [];
+    private bool carregando = true;
+    private string? mensagem;
+
+    private string TituloFornecedor => notas.Count > 0
+        ? $"{notas[0].NomeParticipante} - {CulturaBrasil.DateTimeFormat.GetMonthName(Mes)}/{Ano}"
+        : $"Fornecedor {CodigoParticipante} - {CulturaBrasil.DateTimeFormat.GetMonthName(Mes)}/{Ano}";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        carregando = true;
+        mensagem = null;
+
+        try
+        {
+            notas = await DashboardFiscalRepository.GetNotasEntradaFornecedorAsync(EmpresaId, Ano, Mes, CodigoParticipante);
+        }
+        catch (Exception ex)
+        {
+            mensagem = $"Nao foi possivel carregar as notas do fornecedor: {ex.Message}";
+        }
+        finally
+        {
+            carregando = false;
+        }
+    }
+
+    private decimal CalcularAliquotaEfetivaTotal()
+    {
+        var valorEntrada = notas.Sum(n => n.ValorDocumento);
+        if (valorEntrada == 0)
+        {
+            return 0;
+        }
+
+        return notas.Sum(n => n.ValorIcmsCredito) / valorEntrada * 100;
+    }
+
+    private void Voltar()
+    {
+        Navigation.NavigateTo($"/dashboard-fiscal/entradas/{EmpresaId}/{Ano}/{Mes}");
+    }
+
+    private static string FormatarData(DateTime? data)
+    {
+        return data?.ToString("dd/MM/yyyy", CulturaBrasil) ?? "-";
+    }
+
+    private static string FormatarMoeda(decimal valor)
+    {
+        return valor.ToString("C", CulturaBrasil);
+    }
+
+    private static string FormatarPercentual(decimal valor)
+    {
+        return valor.ToString("N2", CulturaBrasil) + "%";
+    }
+}

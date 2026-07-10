@@ -1,0 +1,53 @@
+﻿.main-content {
+    min-height: 100vh;
+    background: #f6f8fb;
+}
+
+.content-container {
+    padding: 0;
+}
+
+.app-drawer {
+    border-right: 1px solid #e2e8f0;
+}
+
+.drawer-header {
+    display: grid;
+    align-content: center;
+    gap: 0.1rem;
+    min-height: 72px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.nav-menu {
+    padding: 0.75rem;
+}
+
+.appbar-subtitle {
+    opacity: 0.9;
+}
+
+#blazor-error-ui {
+    background: lightyellow;
+    bottom: 0;
+    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
+    display: none;
+    left: 0;
+    padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+}
+
+#blazor-error-ui .dismiss {
+    cursor: pointer;
+    position: absolute;
+    right: 0.75rem;
+    top: 0.5rem;
+}
+
+@media (max-width: 600px) {
+    .appbar-subtitle {
+        display: none;
+    }
+}

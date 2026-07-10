@@ -1,0 +1,26 @@
+.contrib-page { max-width: 1500px; padding: 2.5rem 2rem; }
+.page-header h1 { margin: 0 0 1.5rem; color: #111827; font-size: 2rem; font-weight: 700; }
+.filter-panel { display: grid; grid-template-columns: minmax(320px, 1fr) 140px 140px; gap: 1rem; align-items: end; padding: 1rem; margin-bottom: 1rem; background: #fff; border: 1px solid #d9dee7; border-radius: 6px; }
+.field { display: grid; gap: .4rem; }
+.field label { color: #334155; font-weight: 700; }
+.field select { min-height: 2.4rem; padding: .45rem .6rem; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; color: #111827; }
+.primary-button { min-height: 2.4rem; padding: .45rem .9rem; border: 1px solid #155da8; border-radius: 4px; background: #1b6ec2; color: #fff; font-weight: 700; cursor: pointer; }
+.primary-button:disabled { cursor: not-allowed; opacity: .65; }
+.message.info { margin-bottom: 1rem; padding: .75rem 1rem; border: 1px solid #b6d4fe; border-radius: 4px; background: #cff4fc; color: #055160; }
+.year-summary { display: grid; grid-template-columns: repeat(5, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+.year-summary > div { padding: 1rem; border: 1px solid #d9dee7; border-radius: 6px; background: #fff; }
+.summary-label { display: block; margin-bottom: .35rem; color: #64748b; font-size: .85rem; }
+.year-summary strong { color: #111827; font-size: 1.15rem; }
+.months-table-wrap { overflow-x: auto; border: 1px solid #d9dee7; border-radius: 6px; background: #fff; }
+.months-table { width: 100%; min-width: 1280px; border-collapse: collapse; }
+.months-table th, .months-table td { padding: .8rem .75rem; border-bottom: 1px solid #e5e7eb; text-align: left; white-space: nowrap; }
+.months-table th { background: #f8fafc; color: #475569; font-size: .8rem; text-transform: uppercase; }
+.months-table tbody tr:last-child td { border-bottom: 0; }
+.months-table tbody tr:hover { background: #f8fafc; }
+.months-table .number { text-align: right; font-variant-numeric: tabular-nums; }
+.months-table .credit { color: #047857; }
+.months-table .payable { color: #b45309; font-weight: 700; }
+.months-table .total { color: #1d4ed8; font-weight: 800; }
+.file-name { max-width: 250px; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 1000px) { .year-summary { grid-template-columns: repeat(2, minmax(160px, 1fr)); } }
+@media (max-width: 700px) { .contrib-page { padding: 1.5rem 1rem; } .filter-panel { grid-template-columns: 1fr; } .year-summary { grid-template-columns: 1fr; } }

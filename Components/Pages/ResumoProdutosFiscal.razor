@@ -1,0 +1,285 @@
+@page "/dashboard-fiscal/produtos/{EmpresaId:int}/{Ano:int}/{Mes:int}"
+@page "/dashboard-fiscal/produtos/{EmpresaId:int}/{Ano:int}/{Mes:int}/{TipoOperacao}"
+@rendermode InteractiveServer
+@using System.Globalization
+@using N3.AnalisadorFiscal.Data.Dashboard
+@using N3.AnalisadorFiscal.Data.Repositories
+@inject IDashboardFiscalRepository DashboardFiscalRepository
+@inject NavigationManager Navigation
+
+<PageTitle>Resumo por Produtos</PageTitle>
+
+<section class="products-page">
+    <div class="page-header">
+        <div>
+            <span class="eyebrow">@Mes.ToString("00")/@Ano</span>
+            <h1>@TituloPagina</h1>
+        </div>
+        <button type="button" class="secondary-button" @onclick="Voltar">Voltar</button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(mensagem))
+    {
+        <div class="message info">@mensagem</div>
+    }
+
+    @if (carregando)
+    {
+        <div class="message info">Carregando produtos...</div>
+    }
+    else if (string.IsNullOrWhiteSpace(TipoOperacao))
+    {
+        <div class="products-table-wrap">
+            <table class="products-table">
+                <thead>
+                    <tr>
+                        <th>Operacao</th>
+                        <th class="number">Produtos</th>
+                        <th class="number">Quantidade</th>
+                        <th class="number">Valor operacao</th>
+                        <th>Acoes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in resumoPorOperacao)
+                    {
+                        <tr>
+                            <td><strong>@item.Nome</strong></td>
+                            <td class="number">@item.TotalProdutos</td>
+                            <td class="number">@FormatarQuantidade(item.Quantidade)</td>
+                            <td class="number highlight">@FormatarMoeda(item.ValorOperacao)</td>
+                            <td>
+                                <a class="detail-button" href="@MontarUrlResumoOperacao(item.TipoOperacao)">Abrir produtos</a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else
+    {
+        <section class="summary-grid">
+            <div>
+                <span class="summary-label">@TituloTipoOperacao</span>
+                <strong>@FormatarMoeda(produtosFiltrados.Sum(item => item.ValorOperacao))</strong>
+            </div>
+            <div>
+                <span class="summary-label">Produtos</span>
+                <strong>@produtosFiltrados.Count</strong>
+            </div>
+            <div>
+                <span class="summary-label">Quantidade</span>
+                <strong>@FormatarQuantidade(produtosFiltrados.Sum(item => item.Quantidade))</strong>
+            </div>
+        </section>
+
+        @if (produtosFiltrados.Count == 0)
+        {
+            <div class="message info">Nenhum produto encontrado para @TituloTipoOperacao.ToLower(CulturaBrasil).</div>
+        }
+        else
+        {
+            <div class="products-table-wrap">
+                <table class="products-table">
+                    <thead>
+                        <tr>
+                            <th>Produto</th>
+                            <th>Descricao</th>
+                            <th>Unidade</th>
+                            <th class="number">Quantidade</th>
+                            <th class="number">Valor operacao</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in produtosFiltrados)
+                        {
+                            <tr>
+                                <td><strong>@item.CodigoProduto</strong></td>
+                                <td>@item.DescricaoProduto</td>
+                                <td>@item.Unidade</td>
+                                <td class="number">@FormatarQuantidade(item.Quantidade)</td>
+                                <td class="number highlight">@FormatarMoeda(item.ValorOperacao)</td>
+                            </tr>
+                        }
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td colspan="3"><strong>Total @TituloTipoOperacao</strong></td>
+                            <td class="number"><strong>@FormatarQuantidade(produtosFiltrados.Sum(item => item.Quantidade))</strong></td>
+                            <td class="number highlight"><strong>@FormatarMoeda(produtosFiltrados.Sum(item => item.ValorOperacao))</strong></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        }
+    }
+</section>
+
+@code {
+    private static readonly CultureInfo CulturaBrasil = new("pt-BR");
+    private IReadOnlyList<DashboardProdutoOperacaoDto> produtos = [];
+    private IReadOnlyList<ResumoOperacaoItem> resumoPorOperacao = [];
+    private IReadOnlyList<ResumoProdutoItem> produtosFiltrados = [];
+    private bool carregando;
+    private string? mensagem;
+
+    [Parameter] public int EmpresaId { get; set; }
+    [Parameter] public int Ano { get; set; }
+    [Parameter] public int Mes { get; set; }
+    [Parameter] public string? TipoOperacao { get; set; }
+
+    private string TipoOperacaoSelecionado => TipoOperacao is "1" or "TE" or "TS" ? TipoOperacao : "0";
+    private string TituloTipoOperacao => NomeTipoOperacao(TipoOperacaoSelecionado);
+    private string TituloPagina => string.IsNullOrWhiteSpace(TipoOperacao) ? "Resumo por produtos" : TituloTipoOperacao;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        carregando = true;
+        mensagem = null;
+
+        try
+        {
+            produtos = await DashboardFiscalRepository.GetProdutosPorOperacaoAsync(EmpresaId, Ano, Mes);
+            AtualizarResumoPorOperacao();
+            AtualizarProdutosFiltrados();
+        }
+        catch (Exception ex)
+        {
+            mensagem = $"Nao foi possivel carregar os produtos: {ex.Message}";
+        }
+        finally
+        {
+            carregando = false;
+        }
+    }
+
+    private void Voltar()
+    {
+        if (string.IsNullOrWhiteSpace(TipoOperacao))
+        {
+            Navigation.NavigateTo("/dashboard-fiscal");
+            return;
+        }
+
+        Navigation.NavigateTo($"/dashboard-fiscal/produtos/{EmpresaId}/{Ano}/{Mes}");
+    }
+
+    private string MontarUrlResumoOperacao(string tipoOperacao)
+    {
+        return $"/dashboard-fiscal/produtos/{EmpresaId}/{Ano}/{Mes}/{tipoOperacao}";
+    }
+
+    private void AtualizarResumoPorOperacao()
+    {
+        resumoPorOperacao = TiposOperacao()
+            .Select(tipo =>
+            {
+                var itens = produtos
+                    .Where(item => PertenceAoTipoOperacao(item, tipo.Codigo))
+                    .ToArray();
+
+                return new ResumoOperacaoItem
+                {
+                    TipoOperacao = tipo.Codigo,
+                    Nome = tipo.Nome,
+                    TotalProdutos = itens.Select(item => item.CodigoProduto).Distinct().Count(),
+                    Quantidade = itens.Sum(item => item.Quantidade),
+                    ValorOperacao = itens.Sum(item => item.ValorOperacao)
+                };
+            })
+            .ToArray();
+    }
+
+    private void AtualizarProdutosFiltrados()
+    {
+        produtosFiltrados = produtos
+            .Where(item => PertenceAoTipoOperacao(item, TipoOperacaoSelecionado))
+            .GroupBy(item => new { item.CodigoProduto, item.DescricaoProduto, item.Unidade })
+            .Select(grupo => new ResumoProdutoItem
+            {
+                CodigoProduto = grupo.Key.CodigoProduto,
+                DescricaoProduto = grupo.Key.DescricaoProduto,
+                Unidade = grupo.Key.Unidade,
+                Quantidade = grupo.Sum(item => item.Quantidade),
+                ValorOperacao = grupo.Sum(item => item.ValorOperacao)
+            })
+            .OrderByDescending(item => item.ValorOperacao)
+            .ThenBy(item => item.DescricaoProduto)
+            .ToArray();
+    }
+
+    private static bool PertenceAoTipoOperacao(DashboardProdutoOperacaoDto item, string tipoOperacao)
+    {
+        var transferencia = CfopTransferencia(item.Cfop);
+
+        return tipoOperacao switch
+        {
+            "0" => item.IndicadorOperacao == "0" && !transferencia,
+            "1" => item.IndicadorOperacao == "1" && !transferencia,
+            "TE" => item.IndicadorOperacao == "0" && transferencia,
+            "TS" => item.IndicadorOperacao == "1" && transferencia,
+            _ => false
+        };
+    }
+
+    private static bool CfopTransferencia(string cfop)
+    {
+        cfop = cfop.Trim();
+
+        return cfop is "1151" or "1152" or "1408"
+            or "2151" or "2152" or "2408" or "2409"
+            or "5151" or "5152" or "5408" or "5409"
+            or "6151" or "6152" or "6408" or "6409";
+    }
+
+    private static (string Codigo, string Nome)[] TiposOperacao()
+    {
+        return
+        [
+            ("0", "Entradas"),
+            ("1", "Saidas"),
+            ("TE", "Transferencia entrada"),
+            ("TS", "Transferencia saida")
+        ];
+    }
+
+    private static string NomeTipoOperacao(string tipoOperacao)
+    {
+        return tipoOperacao switch
+        {
+            "1" => "Saidas",
+            "TE" => "Transferencia entrada",
+            "TS" => "Transferencia saida",
+            _ => "Entradas"
+        };
+    }
+
+    private static string FormatarMoeda(decimal valor)
+    {
+        return valor.ToString("C", CulturaBrasil);
+    }
+
+    private static string FormatarQuantidade(decimal valor)
+    {
+        return valor.ToString("N2", CulturaBrasil);
+    }
+
+    private sealed class ResumoOperacaoItem
+    {
+        public string TipoOperacao { get; set; } = string.Empty;
+        public string Nome { get; set; } = string.Empty;
+        public int TotalProdutos { get; set; }
+        public decimal Quantidade { get; set; }
+        public decimal ValorOperacao { get; set; }
+    }
+
+    private sealed class ResumoProdutoItem
+    {
+        public string CodigoProduto { get; set; } = string.Empty;
+        public string DescricaoProduto { get; set; } = string.Empty;
+        public string Unidade { get; set; } = string.Empty;
+        public decimal Quantidade { get; set; }
+        public decimal ValorOperacao { get; set; }
+    }
+}

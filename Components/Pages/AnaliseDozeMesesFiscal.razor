@@ -1,0 +1,237 @@
+@page "/dashboard-fiscal/analise-12-meses/{EmpresaId:int}/{Ano:int}/{Mes:int}"
+@rendermode InteractiveServer
+@using System.Globalization
+@using N3.AnalisadorFiscal.Data.Dashboard
+@using N3.AnalisadorFiscal.Data.Repositories
+@inject IDashboardFiscalRepository DashboardFiscalRepository
+@inject NavigationManager Navigation
+
+<PageTitle>Analise 6 meses</PageTitle>
+
+<section class="analysis-page">
+    <div class="page-header">
+        <div>
+            <span class="eyebrow">Ultimos 6 meses</span>
+            <h1>Entradas, saidas e ICMS</h1>
+        </div>
+        <button type="button" class="secondary-button" @onclick="Voltar">Voltar</button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(mensagem))
+    {
+        <div class="message info">@mensagem</div>
+    }
+
+    @if (carregando)
+    {
+        <div class="message info">Carregando analise...</div>
+    }
+    else if (meses.Count > 0)
+    {
+        <section class="summary-grid">
+            <div>
+                <span class="summary-label">Entradas</span>
+                <strong>@FormatarMoeda(meses.Sum(m => m.Entradas))</strong>
+            </div>
+            <div>
+                <span class="summary-label">Saidas</span>
+                <strong>@FormatarMoeda(meses.Sum(m => m.Saidas))</strong>
+            </div>
+            <div>
+                <span class="summary-label">ICMS a recolher</span>
+                <strong>@FormatarMoeda(meses.Sum(m => m.IcmsARecolher))</strong>
+            </div>
+            <div>
+                <span class="summary-label">ICMS antecipado</span>
+                <strong>@FormatarMoeda(meses.Sum(m => m.IcmsAntecipado))</strong>
+            </div>
+        </section>
+
+        <section class="charts-grid">
+            @RenderChart("Entradas", "entries", "Grafico de entradas dos ultimos 6 meses", item => item.Entradas)
+            @RenderChart("Saidas", "exits", "Grafico de saidas dos ultimos 6 meses", item => item.Saidas)
+            @RenderChart("ICMS a recolher", "tax", "Grafico de ICMS a recolher dos ultimos 6 meses", item => item.IcmsARecolher)
+            @RenderChart("ICMS antecipado", "advance-tax", "Grafico de ICMS antecipado dos ultimos 6 meses", item => item.IcmsAntecipado)
+        </section>
+
+        <div class="analysis-table-wrap">
+            <table class="analysis-table">
+                <thead>
+                    <tr>
+                        <th>Mes</th>
+                        <th class="number">Entradas</th>
+                        <th class="number">Saidas</th>
+                        <th class="number">ICMS a recolher</th>
+                        <th class="number">ICMS antecipado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in meses)
+                    {
+                        <tr>
+                            <td><strong>@item.Competencia.ToString("MM/yyyy", CulturaBrasil)</strong></td>
+                            <td class="number">@FormatarMoeda(item.Entradas)</td>
+                            <td class="number">@FormatarMoeda(item.Saidas)</td>
+                            <td class="number highlight">@FormatarMoeda(item.IcmsARecolher)</td>
+                            <td class="number">@FormatarMoeda(item.IcmsAntecipado)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    private static readonly CultureInfo CulturaBrasil = new("pt-BR");
+    private IReadOnlyList<AnaliseMensalItem> meses = [];
+    private bool carregando;
+    private string? mensagem;
+
+    [Parameter] public int EmpresaId { get; set; }
+    [Parameter] public int Ano { get; set; }
+    [Parameter] public int Mes { get; set; }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        carregando = true;
+        mensagem = null;
+
+        try
+        {
+            var competenciaBase = new DateTime(Ano, Mes, 1);
+            var itens = new List<AnaliseMensalItem>();
+
+            for (var i = 5; i >= 0; i--)
+            {
+                var competencia = competenciaBase.AddMonths(-i);
+                var dashboard = await DashboardFiscalRepository.GetDashboardAsync(EmpresaId, competencia);
+                itens.Add(new AnaliseMensalItem
+                {
+                    Competencia = competencia,
+                    Entradas = CalcularValorOperacao(dashboard, "0"),
+                    Saidas = CalcularValorOperacao(dashboard, "1"),
+                    IcmsARecolher = dashboard.Resumo.IcmsARecolher,
+                    IcmsAntecipado = dashboard.Resumo.IcmsAntecipado
+                });
+            }
+
+            meses = itens;
+        }
+        catch (Exception ex)
+        {
+            mensagem = $"Nao foi possivel carregar a analise dos ultimos 6 meses: {ex.Message}";
+        }
+        finally
+        {
+            carregando = false;
+        }
+    }
+
+    private void Voltar()
+    {
+        Navigation.NavigateTo("/dashboard-fiscal");
+    }
+
+    private RenderFragment RenderChart(string titulo, string classe, string descricao, Func<AnaliseMensalItem, decimal> seletorValor) => @<section class="chart-panel">
+        <div class="chart-title">
+            <span><i class="legend-entry @classe"></i>@titulo</span>
+            <strong>Valores mensais</strong>
+        </div>
+
+        <svg class="analysis-chart" viewBox="0 0 640 300" role="img" aria-label="@descricao">
+            <line x1="44" y1="240" x2="610" y2="240" class="axis" />
+            <line x1="44" y1="34" x2="44" y2="240" class="axis" />
+            <polyline points="@MontarPontosLinha(seletorValor)" class="line @classe" />
+
+            @for (var i = 0; i < meses.Count; i++)
+            {
+                var grupoX = 78 + (i * 88);
+                var valor = seletorValor(meses[i]);
+                var pontoY = CalcularY(valor, seletorValor);
+                <circle cx="@grupoX" cy="@pontoY" r="4.5" class="point @classe" />
+                <svg:text x="@grupoX" y="@(pontoY - 10)" text-anchor="middle" class="value-label">@FormatarMoedaCompacta(valor)</svg:text>
+                <svg:text x="@grupoX" y="266" text-anchor="middle" class="month-label">@meses[i].Competencia.ToString("MM/yy", CulturaBrasil)</svg:text>
+            }
+        </svg>
+    </section>;
+
+    private string MontarPontosLinha(Func<AnaliseMensalItem, decimal> seletorValor)
+    {
+        return string.Join(" ", meses.Select((item, index) =>
+        {
+            var x = 78 + (index * 88);
+            var y = CalcularY(seletorValor(item), seletorValor);
+            return $"{x.ToString(CultureInfo.InvariantCulture)},{y.ToString("0.##", CultureInfo.InvariantCulture)}";
+        }));
+    }
+
+    private double CalcularY(decimal valor, Func<AnaliseMensalItem, decimal> seletorValor)
+    {
+        var maiorValorGrafico = meses.Select(seletorValor).DefaultIfEmpty(0).Max();
+        if (maiorValorGrafico <= 0 || valor <= 0)
+        {
+            return 240;
+        }
+
+        return 240 - ((double)(valor / maiorValorGrafico) * 190);
+    }
+
+    private static string FormatarMoeda(decimal valor)
+    {
+        return valor.ToString("C", CulturaBrasil);
+    }
+
+    private static string FormatarMoedaCompacta(decimal valor)
+    {
+        if (valor >= 1_000_000)
+        {
+            return $"R$ {(valor / 1_000_000).ToString("N1", CulturaBrasil)} mi";
+        }
+
+        if (valor >= 1_000)
+        {
+            return $"R$ {(valor / 1_000).ToString("N0", CulturaBrasil)} mil";
+        }
+
+        return valor.ToString("C0", CulturaBrasil);
+    }
+
+    private static decimal CalcularValorOperacao(DashboardFiscalDto dashboard, string tipoOperacao)
+    {
+        return dashboard.ResumoPorCfopCst
+            .Where(item => PertenceAoTipoOperacao(item, tipoOperacao))
+            .Sum(item => item.ValorOperacao);
+    }
+
+    private static bool PertenceAoTipoOperacao(DashboardFiscalCfopCstDto item, string tipoOperacao)
+    {
+        var transferencia = CfopTransferencia(item.Cfop);
+
+        return tipoOperacao switch
+        {
+            "0" => item.IndicadorOperacao == "0" && !transferencia,
+            "1" => item.IndicadorOperacao == "1" && !transferencia,
+            _ => false
+        };
+    }
+
+    private static bool CfopTransferencia(string cfop)
+    {
+        cfop = cfop.Trim();
+
+        return cfop is "1151" or "1152" or "1408"
+            or "2151" or "2152" or "2408" or "2409"
+            or "5151" or "5152" or "5408" or "5409"
+            or "6151" or "6152" or "6408" or "6409";
+    }
+
+    private sealed class AnaliseMensalItem
+    {
+        public DateTime Competencia { get; set; }
+        public decimal Entradas { get; set; }
+        public decimal Saidas { get; set; }
+        public decimal IcmsARecolher { get; set; }
+        public decimal IcmsAntecipado { get; set; }
+    }
+}

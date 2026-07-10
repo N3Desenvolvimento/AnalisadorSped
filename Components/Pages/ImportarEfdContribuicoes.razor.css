@@ -1,0 +1,170 @@
+.upload-page {
+    max-width: 1180px;
+    padding: 2.5rem 2rem;
+}
+
+.page-header h1 {
+    margin: 0 0 1.5rem;
+    font-size: 2rem;
+    font-weight: 700;
+    color: #111827;
+}
+
+.upload-grid {
+    display: grid;
+    grid-template-columns: minmax(320px, 520px) minmax(320px, 1fr);
+    gap: 1.5rem;
+    align-items: start;
+}
+
+.panel {
+    background: #fff;
+    border: 1px solid #d9dee7;
+    border-radius: 6px;
+    padding: 1.25rem;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+}
+
+.field-group {
+    display: grid;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.field-group label {
+    font-weight: 600;
+    color: #111827;
+}
+
+.file-input {
+    display: block;
+    width: 100%;
+    min-height: 2.4rem;
+    padding: 0.45rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    background: #fff;
+    color: #111827;
+}
+
+.primary-button {
+    min-height: 2.4rem;
+    padding: 0.45rem 0.9rem;
+    border: 1px solid #155da8;
+    border-radius: 4px;
+    background: #1b6ec2;
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.primary-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+
+.selected-file {
+    margin-top: 1rem;
+    color: #64748b;
+    overflow-wrap: anywhere;
+}
+
+.progress-panel {
+    margin-top: 1rem;
+    display: grid;
+    gap: 0.5rem;
+}
+
+.progress-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    color: #334155;
+    font-size: 0.95rem;
+}
+
+.progress-header span {
+    overflow-wrap: anywhere;
+}
+
+.progress-header strong {
+    color: #111827;
+    white-space: nowrap;
+}
+
+.progress-track {
+    height: 0.75rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #e2e8f0;
+}
+
+.progress-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: #1b6ec2;
+    transition: width 180ms ease;
+}
+
+.result-area {
+    min-width: 0;
+}
+
+.message {
+    margin-bottom: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-radius: 4px;
+}
+
+.message.success {
+    border: 1px solid #badbcc;
+    background: #d1e7dd;
+    color: #0f5132;
+}
+
+.message.warning {
+    border: 1px solid #ffecb5;
+    background: #fff3cd;
+    color: #664d03;
+}
+
+.message.error {
+    border: 1px solid #f5c2c7;
+    background: #f8d7da;
+    color: #842029;
+}
+
+.result-panel h2 {
+    margin: 0 0 1rem;
+    color: #111827;
+    font-size: 1.25rem;
+}
+
+.summary-list {
+    display: grid;
+    grid-template-columns: minmax(130px, 1fr) minmax(150px, 1fr);
+    gap: 0.55rem 1rem;
+    margin: 0;
+}
+
+.summary-list dt {
+    color: #334155;
+    font-weight: 700;
+}
+
+.summary-list dd {
+    margin: 0;
+    text-align: right;
+    color: #111827;
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+    .upload-page {
+        padding: 1.5rem 1rem;
+    }
+
+    .upload-grid {
+        grid-template-columns: 1fr;
+    }
+}

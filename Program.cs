@@ -1,0 +1,307 @@
+﻿using MudBlazor.Services;
+using N3.AnalisadorFiscal.Data;
+using N3.AnalisadorFiscal.Data.Dashboard;
+using N3.AnalisadorFiscal.Data.Repositories;
+using N3.AnalisadorFiscal.Sped;
+using N3.AnalisadorFiscal.Web.Components;
+using N3.AnalisadorFiscal.Web.Services;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Add services to the container.
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents();
+builder.Services.AddMudServices();
+builder.Services.AddDataAccess();
+builder.Services.AddSpedServices();
+builder.Services.AddScoped<INotasEntradaExcelService, NotasEntradaExcelService>();
+builder.Services.AddScoped<ICfopExcelService, CfopExcelService>();
+builder.Services.AddScoped<IIcmsApuracaoPdfService, IcmsApuracaoPdfService>();
+builder.Services.AddScoped<IGuiaIcmsPdfLeituraService, GuiaIcmsPdfLeituraService>();
+builder.Services.AddHttpClient<ISimplesNacionalConsultaService, SimplesNacionalConsultaService>(client =>
+{
+    client.BaseAddress = new Uri("https://brasilapi.com.br/");
+    client.Timeout = TimeSpan.FromSeconds(20);
+});
+
+var app = builder.Build();
+
+// Configure the HTTP request pipeline.
+if (!app.Environment.IsDevelopment())
+{
+    app.UseExceptionHandler("/Error", createScopeForErrors: true);
+    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
+    app.UseHsts();
+}
+
+app.UseHttpsRedirection();
+
+app.UseStaticFiles();
+app.UseAntiforgery();
+
+app.MapGet("/downloads/entradas-fornecedores/{empresaId:int}/{ano:int}/{mes:int}", async (
+    int empresaId,
+    int ano,
+    int mes,
+    IDashboardFiscalRepository dashboardFiscalRepository,
+    INotasEntradaExcelService excelService,
+    CancellationToken cancellationToken) =>
+{
+    var notas = await dashboardFiscalRepository.GetNotasEntradaFornecedoresAsync(empresaId, ano, mes, cancellationToken);
+    var arquivo = excelService.Gerar(notas);
+    var nomeArquivo = $"notas_entrada_fornecedores_{ano}_{mes:00}.xlsx";
+
+    return Results.File(
+        arquivo,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        nomeArquivo);
+});
+
+app.MapGet("/downloads/apuracao-icms/{empresaId:int}/{ano:int}/{mes:int}", async (
+    int empresaId,
+    int ano,
+    int mes,
+    IDashboardFiscalRepository dashboardFiscalRepository,
+    IIcmsApuracaoPdfService pdfService,
+    CancellationToken cancellationToken) =>
+{
+    var empresas = await dashboardFiscalRepository.GetEmpresasAsync(cancellationToken);
+    var empresa = empresas.FirstOrDefault(item => item.Id == empresaId);
+    var competencia = new DateTime(ano, mes, 1);
+    var dashboard = await dashboardFiscalRepository.GetDashboardAsync(empresaId, competencia, cancellationToken);
+    var ultimosSeisMeses = new List<ApuracaoMensalPdfDto>();
+
+    for (var i = 5; i >= 0; i--)
+    {
+        var competenciaAnalise = competencia.AddMonths(-i);
+        var dashboardAnalise = await dashboardFiscalRepository.GetDashboardAsync(empresaId, competenciaAnalise, cancellationToken);
+        ultimosSeisMeses.Add(new ApuracaoMensalPdfDto
+        {
+            Competencia = competenciaAnalise,
+            Dashboard = dashboardAnalise
+        });
+    }
+
+    var arquivo = pdfService.GerarDemonstrativo(empresa, competencia, dashboard, ultimosSeisMeses);
+    var nomeArquivo = $"apuracao_icms_{ano}_{mes:00}.pdf";
+
+    return Results.File(arquivo, "application/pdf", nomeArquivo);
+});
+
+app.MapGet("/downloads/apuracao-icms-3-meses/{empresaId:int}/{ano:int}/{mes:int}", async (
+    int empresaId,
+    int ano,
+    int mes,
+    IDashboardFiscalRepository dashboardFiscalRepository,
+    IIcmsApuracaoPdfService pdfService,
+    CancellationToken cancellationToken) =>
+{
+    var empresas = await dashboardFiscalRepository.GetEmpresasAsync(cancellationToken);
+    var empresa = empresas.FirstOrDefault(item => item.Id == empresaId);
+    var competenciaBase = new DateTime(ano, mes, 1);
+    var apuracoes = new List<ApuracaoMensalPdfDto>();
+
+    for (var i = 2; i >= 0; i--)
+    {
+        var competencia = competenciaBase.AddMonths(-i);
+        var dashboard = await dashboardFiscalRepository.GetDashboardAsync(empresaId, competencia, cancellationToken);
+        apuracoes.Add(new ApuracaoMensalPdfDto
+        {
+            Competencia = competencia,
+            Dashboard = dashboard
+        });
+    }
+
+    var arquivo = pdfService.GerarAnaliseTresMeses(empresa, apuracoes);
+    var nomeArquivo = $"analise_icms_3_meses_{ano}_{mes:00}.pdf";
+
+    return Results.File(arquivo, "application/pdf", nomeArquivo);
+});
+
+app.MapGet("/downloads/guia-icms/{empresaId:int}/{ano:int}/{mes:int}", async (
+    int empresaId,
+    int ano,
+    int mes,
+    IDashboardFiscalRepository dashboardFiscalRepository,
+    CancellationToken cancellationToken) =>
+{
+    var guia = await dashboardFiscalRepository.GetGuiaIcmsPdfAsync(empresaId, ano, mes, cancellationToken);
+    if (guia is null || guia.ArquivoPdf.Length == 0)
+    {
+        return Results.NotFound("Guia nao encontrada para esta competencia.");
+    }
+
+    var nomeArquivo = string.IsNullOrWhiteSpace(guia.NomeArquivo)
+        ? $"guia_icms_{ano}_{mes:00}.pdf"
+        : guia.NomeArquivo;
+
+    return Results.File(guia.ArquivoPdf, "application/pdf", nomeArquivo);
+});
+
+app.MapGet("/downloads/cfop-resumo-operacoes/{empresaId:int}/{ano:int}/{mes:int}", async (
+    int empresaId,
+    int ano,
+    int mes,
+    IDashboardFiscalRepository dashboardFiscalRepository,
+    ICfopExcelService excelService,
+    CancellationToken cancellationToken) =>
+{
+    var dashboard = await dashboardFiscalRepository.GetDashboardAsync(empresaId, new DateTime(ano, mes, 1), cancellationToken);
+    var linhas = new[] { "0", "1", "TE", "TS" }
+        .Select(tipo =>
+        {
+            var itens = dashboard.ResumoPorCfopCst
+                .Where(item => PertenceAoTipoOperacaoCfop(item, tipo))
+                .ToArray();
+
+            return (IReadOnlyList<object?>)
+            [
+                NomeTipoOperacaoCfop(tipo),
+                itens.Sum(item => item.ValorOperacao),
+                itens.Sum(item => item.BaseIcms),
+                itens.Sum(item => item.ValorIcms),
+                itens.Select(item => item.Cfop).Distinct().Count()
+            ];
+        })
+        .ToArray();
+
+    var arquivo = excelService.Gerar(
+        "Resumo CFOP",
+        ["Operacao", "Valor operacao", "Base ICMS", "Valor ICMS", "CFOPs"],
+        linhas);
+    var nomeArquivo = $"resumo_cfop_{ano}_{mes:00}.xlsx";
+
+    return Results.File(
+        arquivo,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        nomeArquivo);
+});
+
+app.MapGet("/downloads/cfop-resumo/{empresaId:int}/{ano:int}/{mes:int}/{tipoOperacao}", async (
+    int empresaId,
+    int ano,
+    int mes,
+    string tipoOperacao,
+    IDashboardFiscalRepository dashboardFiscalRepository,
+    ICfopExcelService excelService,
+    CancellationToken cancellationToken) =>
+{
+    var tipoSelecionado = TipoOperacaoCfopValido(tipoOperacao);
+    var dashboard = await dashboardFiscalRepository.GetDashboardAsync(empresaId, new DateTime(ano, mes, 1), cancellationToken);
+    var linhas = dashboard.ResumoPorCfopCst
+        .Where(item => PertenceAoTipoOperacaoCfop(item, tipoSelecionado))
+        .GroupBy(item => item.Cfop)
+        .Select(grupo => (IReadOnlyList<object?>)
+        [
+            grupo.Key,
+            grupo.Sum(item => item.ValorOperacao),
+            grupo.Sum(item => item.BaseIcms),
+            grupo.Sum(item => item.ValorIcms)
+        ])
+        .OrderBy(item => item[0]?.ToString())
+        .ToArray();
+
+    var arquivo = excelService.Gerar(
+        NomeTipoOperacaoCfop(tipoSelecionado),
+        ["CFOP", "Valor operacao", "Base ICMS", "Valor ICMS"],
+        linhas);
+    var nomeArquivo = $"cfop_{NomeArquivoTipoOperacaoCfop(tipoSelecionado)}_{ano}_{mes:00}.xlsx";
+
+    return Results.File(
+        arquivo,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        nomeArquivo);
+});
+
+app.MapGet("/downloads/cfop-detalhe/{empresaId:int}/{ano:int}/{mes:int}/{tipoOperacao}/{cfop}", async (
+    int empresaId,
+    int ano,
+    int mes,
+    string tipoOperacao,
+    string cfop,
+    IDashboardFiscalRepository dashboardFiscalRepository,
+    ICfopExcelService excelService,
+    CancellationToken cancellationToken) =>
+{
+    var tipoSelecionado = TipoOperacaoCfopValido(tipoOperacao);
+    var dashboard = await dashboardFiscalRepository.GetDashboardAsync(empresaId, new DateTime(ano, mes, 1), cancellationToken);
+    var linhas = dashboard.ResumoPorCfopCst
+        .Where(item => PertenceAoTipoOperacaoCfop(item, tipoSelecionado) &&
+            string.Equals(item.Cfop, cfop, StringComparison.OrdinalIgnoreCase))
+        .OrderBy(item => item.CstIcms)
+        .Select(item => (IReadOnlyList<object?>)
+        [
+            item.CstIcms,
+            item.ValorOperacao,
+            item.BaseIcms,
+            item.ValorIcms
+        ])
+        .ToArray();
+
+    var arquivo = excelService.Gerar(
+        $"CFOP {cfop}",
+        ["CST ICMS", "Valor operacao", "Base ICMS", "Valor ICMS"],
+        linhas);
+    var nomeArquivo = $"cfop_{cfop}_detalhe_{ano}_{mes:00}.xlsx";
+
+    return Results.File(
+        arquivo,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        nomeArquivo);
+});
+
+app.MapRazorComponents<App>()
+    .AddInteractiveServerRenderMode();
+
+app.Run();
+
+static bool PertenceAoTipoOperacaoCfop(DashboardFiscalCfopCstDto item, string tipoOperacao)
+{
+    var transferencia = CfopTransferencia(item.Cfop);
+
+    return tipoOperacao switch
+    {
+        "0" => item.IndicadorOperacao == "0" && !transferencia,
+        "1" => item.IndicadorOperacao == "1" && !transferencia,
+        "TE" => item.IndicadorOperacao == "0" && transferencia,
+        "TS" => item.IndicadorOperacao == "1" && transferencia,
+        _ => false
+    };
+}
+
+static string TipoOperacaoCfopValido(string tipoOperacao)
+{
+    return tipoOperacao is "1" or "TE" or "TS" ? tipoOperacao : "0";
+}
+
+static string NomeTipoOperacaoCfop(string tipoOperacao)
+{
+    return tipoOperacao switch
+    {
+        "1" => "Saidas",
+        "TE" => "Transferencia entrada",
+        "TS" => "Transferencia saida",
+        _ => "Entradas"
+    };
+}
+
+static string NomeArquivoTipoOperacaoCfop(string tipoOperacao)
+{
+    return tipoOperacao switch
+    {
+        "1" => "saidas",
+        "TE" => "transferencia_entrada",
+        "TS" => "transferencia_saida",
+        _ => "entradas"
+    };
+}
+
+static bool CfopTransferencia(string cfop)
+{
+    cfop = cfop.Trim();
+
+    return cfop is "1151" or "1152" or "1408"
+        or "2151" or "2152" or "2408" or "2409"
+        or "5151" or "5152" or "5408" or "5409"
+        or "6151" or "6152" or "6408" or "6409";
+}

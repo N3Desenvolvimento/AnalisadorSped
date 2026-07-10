@@ -1,0 +1,14 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\N3.AnalisadorFiscal.Domain\N3.AnalisadorFiscal.Domain.csproj" />
+    <ProjectReference Include="..\N3.AnalisadorFiscal.Data\N3.AnalisadorFiscal.Data.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,213 @@
+@page "/importar-efd-contribuicoes"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Components.Forms
+@using N3.AnalisadorFiscal.Sped.Services
+@inject IEfdContribuicoesImportService ImportService
+@inject IWebHostEnvironment Environment
+
+<PageTitle>Upload EFD Contribuições</PageTitle>
+
+<section class="upload-page">
+    <div class="page-header">
+        <h1>Upload EFD Contribuições</h1>
+    </div>
+
+    <div class="upload-grid">
+        <section class="panel upload-panel">
+            <div class="field-group">
+                <label for="arquivoEfdContrib">Arquivo EFD Contribuições</label>
+                <InputFile id="arquivoEfdContrib" class="file-input" OnChange="SelecionarArquivoAsync" disabled="@importando" />
+            </div>
+
+            <button type="button" class="primary-button" @onclick="ImportarAsync" disabled="@(arquivoSelecionado is null || importando)">
+                @(importando ? "Importando..." : "Importar arquivo")
+            </button>
+
+            @if (!string.IsNullOrWhiteSpace(nomeArquivoSelecionado))
+            {
+                <div class="selected-file">Selecionado: @nomeArquivoSelecionado</div>
+            }
+
+            @if (importando)
+            {
+                <div class="progress-panel" role="status" aria-live="polite">
+                    <div class="progress-header">
+                        <span>@mensagemProgresso</span>
+                        <strong>@percentualProgresso%</strong>
+                    </div>
+                    <div class="progress-track" aria-label="Progresso da importacao">
+                        <div class="progress-fill" style="width:@percentualProgresso%"></div>
+                    </div>
+                </div>
+            }
+        </section>
+
+        <section class="result-area">
+            @if (!string.IsNullOrWhiteSpace(mensagemErro))
+            {
+                <div class="message error">@mensagemErro</div>
+            }
+
+            @if (resultado is not null)
+            {
+                <div class="panel result-panel">
+                    <h2>Resultado da importação</h2>
+
+                    @foreach (var mensagem in resultado.Mensagens)
+                    {
+                        <div class="message @ClasseAlertaResultado">@mensagem</div>
+                    }
+
+                    <dl class="summary-list">
+                        <dt>Arquivo</dt>
+                        <dd>@resultado.NomeArquivo</dd>
+
+                        <dt>CNPJ</dt>
+                        <dd>@resultado.Cnpj</dd>
+
+                        <dt>UF</dt>
+                        <dd>@resultado.Uf</dd>
+
+                        <dt>Período</dt>
+                        <dd>@FormatarPeriodo(resultado)</dd>
+
+                        <dt>Participantes</dt>
+                        <dd>@resultado.ParticipantesImportados</dd>
+
+                        <dt>Unidades</dt>
+                        <dd>@resultado.UnidadesMedidaImportadas</dd>
+
+                        <dt>Produtos</dt>
+                        <dd>@resultado.ProdutosImportados</dd>
+
+                        <dt>Documentos de mercadorias</dt>
+                        <dd>@resultado.C100Importados (@resultado.C170Importados itens)</dd>
+
+                        <dt>Documentos de serviços</dt>
+                        <dd>@resultado.A100Importados (@resultado.A170Importados itens)</dd>
+
+                        <dt>Registros de apuração</dt>
+                        <dd>@(resultado.M100Importados + resultado.M200Importados + resultado.M500Importados + resultado.M600Importados)</dd>
+                    </dl>
+                </div>
+            }
+        </section>
+    </div>
+</section>
+
+@code {
+    private const long TamanhoMaximoArquivo = 200 * 1024 * 1024;
+    private IBrowserFile? arquivoSelecionado;
+    private string? nomeArquivoSelecionado;
+    private bool importando;
+    private string? mensagemErro;
+    private ImportacaoResultado? resultado;
+    private int percentualProgresso;
+    private string mensagemProgresso = string.Empty;
+
+    private string ClasseAlertaResultado => resultado?.Sucesso == true ? "success" : resultado?.ArquivoValido == false ? "error" : "warning";
+
+    private Task SelecionarArquivoAsync(InputFileChangeEventArgs e)
+    {
+        arquivoSelecionado = e.File;
+        nomeArquivoSelecionado = arquivoSelecionado.Name;
+        resultado = null;
+        mensagemErro = null;
+        percentualProgresso = 0;
+        mensagemProgresso = string.Empty;
+        return Task.CompletedTask;
+    }
+
+    private async Task ImportarAsync()
+    {
+        if (arquivoSelecionado is null)
+        {
+            mensagemErro = "Selecione um arquivo EFD Contribuições.";
+            return;
+        }
+
+        importando = true;
+        mensagemErro = null;
+        resultado = null;
+        percentualProgresso = 0;
+        mensagemProgresso = "Preparando envio...";
+        var caminhoTemporario = string.Empty;
+        var pastaTemporaria = string.Empty;
+
+        try
+        {
+            var pastaUpload = Path.Combine(Environment.ContentRootPath, "App_Data", "Uploads");
+            pastaTemporaria = Path.Combine(pastaUpload, Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(pastaTemporaria);
+
+            caminhoTemporario = Path.Combine(pastaTemporaria, Path.GetFileName(arquivoSelecionado.Name));
+            await CopiarArquivoTemporarioAsync(caminhoTemporario);
+
+            var progresso = new Progress<ImportacaoProgresso>(async progressoImportacao =>
+            {
+                percentualProgresso = Math.Clamp(progressoImportacao.Percentual, 0, 100);
+                mensagemProgresso = progressoImportacao.Mensagem;
+                await InvokeAsync(StateHasChanged);
+            });
+
+            resultado = await ImportService.ImportarAsync(caminhoTemporario, progresso);
+        }
+        catch (Exception ex)
+        {
+            mensagemErro = $"Nao foi possivel importar o arquivo: {ex.Message}";
+        }
+        finally
+        {
+            importando = false;
+
+            if (!string.IsNullOrWhiteSpace(pastaTemporaria) && Directory.Exists(pastaTemporaria))
+            {
+                Directory.Delete(pastaTemporaria, recursive: true);
+            }
+        }
+    }
+
+    private async Task CopiarArquivoTemporarioAsync(string caminhoTemporario)
+    {
+        var buffer = new byte[81920];
+        long bytesCopiados = 0;
+
+        await using var destino = File.Create(caminhoTemporario);
+        await using var origem = arquivoSelecionado!.OpenReadStream(TamanhoMaximoArquivo);
+
+        while (true)
+        {
+            var bytesLidos = await origem.ReadAsync(buffer);
+            if (bytesLidos == 0)
+            {
+                break;
+            }
+
+            await destino.WriteAsync(buffer.AsMemory(0, bytesLidos));
+            bytesCopiados += bytesLidos;
+            percentualProgresso = CalcularProgressoEnvio(bytesCopiados, arquivoSelecionado.Size);
+            mensagemProgresso = "Enviando arquivo...";
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private static int CalcularProgressoEnvio(long bytesCopiados, long tamanhoArquivo)
+    {
+        if (tamanhoArquivo <= 0)
+        {
+            return 10;
+        }
+
+        return Math.Clamp((int)Math.Round(bytesCopiados * 10.0 / tamanhoArquivo), 1, 10);
+    }
+
+    private static string FormatarPeriodo(ImportacaoResultado resultado)
+    {
+        if (resultado.PeriodoInicial is null || resultado.PeriodoFinal is null)
+        {
+            return "-";
+        }
+
+        return $"{resultado.PeriodoInicial:dd/MM/yyyy} a {resultado.PeriodoFinal:dd/MM/yyyy}";
+    }
+}
