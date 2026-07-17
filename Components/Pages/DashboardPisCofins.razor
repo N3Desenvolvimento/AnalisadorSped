@@ -1,10 +1,13 @@
 @page "/dashboard-pis-cofins"
 @rendermode InteractiveServer
 @using System.Globalization
+@using Microsoft.JSInterop
 @using N3.AnalisadorFiscal.Data.Dashboard
 @using N3.AnalisadorFiscal.Data.Repositories
 @inject IDashboardFiscalRepository DashboardFiscalRepository
 @inject IDashboardPisCofinsRepository DashboardPisCofinsRepository
+@inject ISpedArquivoRepository SpedArquivoRepository
+@inject IJSRuntime JS
 
 <PageTitle>Dashboard PIS/COFINS</PageTitle>
 
@@ -35,7 +38,7 @@
             </select>
         </div>
 
-        <button type="button" class="primary-button" @onclick="CarregarAsync" disabled="@(empresaIdSelecionada == 0 || carregando)">
+        <button type="button" class="primary-button" @onclick="CarregarAsync" disabled="@(empresaIdSelecionada == 0 || carregando || excluindo)">
             @(carregando ? "Carregando..." : "Atualizar")
         </button>
     </section>
@@ -79,6 +82,16 @@
                             <td class="number payable">@FormatarMoeda(mes.CofinsAPagar)</td>
                             <td class="number total">@FormatarMoeda(mes.TotalAPagar)</td>
                         </tr>
+                        <tr class="actions-row">
+                            <td></td>
+                            <td colspan="8">
+                                <a class="cst-button" href="@MontarUrlResumoCst(mes)">Resumo por CST</a>
+                                <a class="cst-button" href="@MontarUrlResumoCfopCst(mes)">Resumo por CFOP e CST</a>
+                                <button type="button" class="delete-import-button" @onclick="() => ExcluirImportacaoAsync(mes)" disabled="@(carregando || excluindo)">
+                                    @(excluindoMes == mes.Mes ? "Removendo..." : "Remover importação")
+                                </button>
+                            </td>
+                        </tr>
                     }
                 </tbody>
             </table>
@@ -93,6 +106,8 @@
     private int empresaIdSelecionada;
     private int anoSelecionado = DateTime.Today.Year;
     private bool carregando;
+    private bool excluindo;
+    private int? excluindoMes;
     private string? mensagem;
 
     protected override async Task OnInitializedAsync() => empresas = await DashboardFiscalRepository.GetEmpresasAsync();
@@ -115,4 +130,39 @@
     }
 
     private static string FormatarMoeda(decimal valor) => valor.ToString("C2", CultureInfo.GetCultureInfo("pt-BR"));
+
+    private string MontarUrlResumoCst(DashboardPisCofinsMesDto mes) =>
+        $"/dashboard-pis-cofins/cst/{empresaIdSelecionada}/{anoSelecionado}/{mes.Mes}";
+
+    private string MontarUrlResumoCfopCst(DashboardPisCofinsMesDto mes) =>
+        $"/dashboard-pis-cofins/cfop-cst/{empresaIdSelecionada}/{anoSelecionado}/{mes.Mes}";
+
+    private async Task ExcluirImportacaoAsync(DashboardPisCofinsMesDto mes)
+    {
+        var confirmado = await JS.InvokeAsync<bool>("confirm",
+            $"Remover a importação EFD Contribuições de {mes.NomeMes}/{anoSelecionado}? O SPED Fiscal não será afetado.");
+        if (!confirmado) return;
+
+        excluindo = true;
+        excluindoMes = mes.Mes;
+        mensagem = null;
+        try
+        {
+            var excluidos = await SpedArquivoRepository.DeleteByEmpresaCompetenciaTipoAsync(
+                empresaIdSelecionada, anoSelecionado, mes.Mes, "EFD_CONTRIBUICOES");
+            mensagem = excluidos > 0
+                ? $"Importação EFD Contribuições de {mes.NomeMes}/{anoSelecionado} removida com sucesso."
+                : $"Nenhuma importação EFD Contribuições encontrada para {mes.NomeMes}/{anoSelecionado}.";
+            meses = await DashboardPisCofinsRepository.GetMesesImportadosAsync(empresaIdSelecionada, anoSelecionado);
+        }
+        catch (Exception ex)
+        {
+            mensagem = $"Não foi possível remover a importação: {ex.Message}";
+        }
+        finally
+        {
+            excluindo = false;
+            excluindoMes = null;
+        }
+    }
 }

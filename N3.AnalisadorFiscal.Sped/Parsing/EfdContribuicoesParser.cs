@@ -55,6 +55,7 @@ public sealed class EfdContribuicoesParser
                 break;
             case "C100":
             case "C170":
+            case "C175":
             case "A100":
             case "A170":
             case "M100":

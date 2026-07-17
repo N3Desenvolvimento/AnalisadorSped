@@ -22,5 +22,11 @@
 .months-table .payable { color: #b45309; font-weight: 700; }
 .months-table .total { color: #1d4ed8; font-weight: 800; }
 .file-name { max-width: 250px; overflow: hidden; text-overflow: ellipsis; }
+.actions-row td { padding-top: .35rem; padding-bottom: .75rem; background: #f8fafc; }
+.cst-button { display: inline-flex; align-items: center; min-height: 2rem; padding: .35rem .7rem; border-radius: 4px; background: #0f766e; color: #fff; font-size: .85rem; font-weight: 700; text-decoration: none; }
+.cst-button:hover { background: #115e59; color: #fff; }
+.delete-import-button { min-height: 2rem; margin-left: .5rem; padding: .35rem .7rem; border: 1px solid #dc2626; border-radius: 4px; background: #fff; color: #b91c1c; font-size: .85rem; font-weight: 700; cursor: pointer; }
+.delete-import-button:hover:not(:disabled) { background: #dc2626; color: #fff; }
+.delete-import-button:disabled { cursor: not-allowed; opacity: .6; }
 @media (max-width: 1000px) { .year-summary { grid-template-columns: repeat(2, minmax(160px, 1fr)); } }
 @media (max-width: 700px) { .contrib-page { padding: 1.5rem 1rem; } .filter-panel { grid-template-columns: 1fr; } .year-summary { grid-template-columns: 1fr; } }

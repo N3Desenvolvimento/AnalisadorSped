@@ -17,5 +17,9 @@ public sealed class DashboardNotaEntradaFornecedorDto
     public decimal ValorMercadoria { get; set; }
     public decimal ValorBaseIcms { get; set; }
     public decimal ValorIcmsCredito { get; set; }
+    public decimal ValorIcmsCreditoPermitido { get; set; }
+    public decimal DiferencaIcmsCredito { get; set; }
+    public int ItensComDivergencia { get; set; }
+    public int ItensParaRevisao { get; set; }
     public decimal AliquotaEfetivaCredito { get; set; }
 }

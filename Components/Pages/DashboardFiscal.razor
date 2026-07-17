@@ -1,4 +1,5 @@
 @page "/dashboard-fiscal"
+@page "/dashboard-fiscal/{EmpresaId:int}/{Ano:int}/{Mes:int}"
 @rendermode InteractiveServer
 @using System.Globalization
 @using Microsoft.AspNetCore.Components.Forms
@@ -82,8 +83,14 @@
                 <tbody>
                     @foreach (var mes in dashboardAnual.Meses.Where(m => m.ArquivoImportado).OrderByDescending(m => m.Mes))
                     {
-                        <tr class="@(mes.ArquivoImportado ? "imported" : "empty")">
+                        <tr id="sped-mes-@mes.Mes"
+                            class="@(mes.ArquivoImportado ? "imported" : "empty") @(Mes == mes.Mes ? "selected-month" : null)"
+                            tabindex="@(Mes == mes.Mes ? "-1" : null)">
                             <td>
+                                @if (Mes == mes.Mes)
+                                {
+                                    <span class="month-scroll-target" tabindex="-1" @ref="linhaMesSelecionado"></span>
+                                }
                                 <strong>@mes.Mes.ToString("00")</strong>
                             </td>
                             <td>
@@ -105,7 +112,6 @@
                                     <a class="analyze-entries-button" href="@MontarUrlAnaliseEntradas(mes)">Fornecedores</a>
                                     <a class="cfop-summary-button" href="@MontarUrlResumoCfop(mes)">CFOP</a>
                                     <a class="products-button" href="@MontarUrlProdutos(mes)">Produtos</a>
-                                    <a class="analysis-button" href="@MontarUrlAnaliseSeisMeses(mes)">6 meses</a>
                                     <a class="pdf-button" href="@MontarUrlPdfApuracao(mes)">PDF ICMS</a>
                                     <button type="button" class="guide-button" @onclick="() => AbrirGuia(mes)" disabled="@(carregando || excluindo || salvandoGuia)">Guia ICMS</button>
                                     @if (mes.ValorPrincipalGuiaIcms.HasValue)
@@ -161,6 +167,10 @@
 </section>
 
 @code {
+    [Parameter] public int? EmpresaId { get; set; }
+    [Parameter] public int? Ano { get; set; }
+    [Parameter] public int? Mes { get; set; }
+
     private static readonly CultureInfo CulturaBrasil = new("pt-BR");
     private IReadOnlyList<EmpresaOpcaoDto> empresas = [];
     private IReadOnlyList<int> anos = [];
@@ -177,12 +187,34 @@
     private decimal? valorPrincipalLido;
     private string? situacaoGuiaAtual;
     private string? mensagem;
+    private ElementReference linhaMesSelecionado;
+    private bool posicionarMes;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnParametersSetAsync()
     {
-        empresas = await DashboardFiscalRepository.GetEmpresasAsync();
-        anos = Enumerable.Range(DateTime.Today.Year - 5, 7).Reverse().ToArray();
-        mensagem = empresas.Count == 0 ? "Nenhuma empresa importada ainda." : null;
+        if (empresas.Count == 0)
+        {
+            empresas = await DashboardFiscalRepository.GetEmpresasAsync();
+            anos = Enumerable.Range(DateTime.Today.Year - 5, 7).Reverse().ToArray();
+            mensagem = empresas.Count == 0 ? "Nenhuma empresa importada ainda." : null;
+        }
+
+        if (EmpresaId is > 0 && Ano is > 0 && Mes is >= 1 and <= 12)
+        {
+            empresaIdSelecionada = EmpresaId.Value;
+            anoSelecionado = Ano.Value;
+            await CarregarDashboardAsync();
+            posicionarMes = true;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (posicionarMes)
+        {
+            posicionarMes = false;
+            await linhaMesSelecionado.FocusAsync(preventScroll: false);
+        }
     }
 
     private async Task CarregarDashboardAsync()
@@ -224,11 +256,6 @@
     private string MontarUrlProdutos(DashboardFiscalMesDto mes)
     {
         return $"/dashboard-fiscal/produtos/{empresaIdSelecionada}/{anoSelecionado}/{mes.Mes}";
-    }
-
-    private string MontarUrlAnaliseSeisMeses(DashboardFiscalMesDto mes)
-    {
-        return $"/dashboard-fiscal/analise-12-meses/{empresaIdSelecionada}/{anoSelecionado}/{mes.Mes}";
     }
 
     private string MontarUrlPdfApuracao(DashboardFiscalMesDto mes)

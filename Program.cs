@@ -1,5 +1,7 @@
 ﻿using MudBlazor.Services;
 using N3.AnalisadorFiscal.Data;
+using System.IO.Compression;
+using System.Text;
 using N3.AnalisadorFiscal.Data.Dashboard;
 using N3.AnalisadorFiscal.Data.Repositories;
 using N3.AnalisadorFiscal.Sped;
@@ -18,10 +20,23 @@ builder.Services.AddScoped<INotasEntradaExcelService, NotasEntradaExcelService>(
 builder.Services.AddScoped<ICfopExcelService, CfopExcelService>();
 builder.Services.AddScoped<IIcmsApuracaoPdfService, IcmsApuracaoPdfService>();
 builder.Services.AddScoped<IGuiaIcmsPdfLeituraService, GuiaIcmsPdfLeituraService>();
+builder.Services.Configure<NfseNacionalOptions>(builder.Configuration.GetSection(NfseNacionalOptions.SectionName));
+builder.Services.AddScoped<INfseNacionalService, NfseNacionalService>();
+builder.Services.AddSingleton<ICertificateStoreService, CertificateStoreService>();
 builder.Services.AddHttpClient<ISimplesNacionalConsultaService, SimplesNacionalConsultaService>(client =>
 {
     client.BaseAddress = new Uri("https://brasilapi.com.br/");
     client.Timeout = TimeSpan.FromSeconds(20);
+});
+builder.Services.AddHttpClient<ICnpjPublicoConsultaService, CnpjPublicoConsultaService>(client =>
+{
+    client.BaseAddress = new Uri("https://brasilapi.com.br/");
+    client.Timeout = TimeSpan.FromSeconds(20);
+});
+builder.Services.AddHttpClient("DanfseNacional", client =>
+{
+    client.BaseAddress = new Uri("https://adn.nfse.gov.br/");
+    client.Timeout = TimeSpan.FromSeconds(45);
 });
 
 var app = builder.Build();
@@ -57,6 +72,19 @@ app.MapGet("/downloads/entradas-fornecedores/{empresaId:int}/{ano:int}/{mes:int}
         nomeArquivo);
 });
 
+app.MapGet("/downloads/pre-analise-icms/{preAnaliseSpedId:int}", async (
+    int preAnaliseSpedId,
+    IPreAnaliseSpedRepository repository,
+    INotasEntradaExcelService excelService,
+    CancellationToken cancellationToken) =>
+{
+    var notas = await repository.GetNotasAsync(preAnaliseSpedId, cancellationToken);
+    var arquivo = excelService.Gerar(notas);
+    return Results.File(arquivo,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        $"pre_analise_icms_{preAnaliseSpedId}.xlsx");
+});
+
 app.MapGet("/downloads/apuracao-icms/{empresaId:int}/{ano:int}/{mes:int}", async (
     int empresaId,
     int ano,
@@ -83,7 +111,8 @@ app.MapGet("/downloads/apuracao-icms/{empresaId:int}/{ano:int}/{mes:int}", async
     }
 
     var arquivo = pdfService.GerarDemonstrativo(empresa, competencia, dashboard, ultimosSeisMeses);
-    var nomeArquivo = $"apuracao_icms_{ano}_{mes:00}.pdf";
+    var nomeEmpresa = NomeSeguroParaArquivo(empresa?.RazaoSocial, $"empresa_{empresaId}");
+    var nomeArquivo = $"apuracao_icms_{nomeEmpresa}_{ano}_{mes:00}.pdf";
 
     return Results.File(arquivo, "application/pdf", nomeArquivo);
 });
@@ -250,6 +279,96 @@ app.MapGet("/downloads/cfop-detalhe/{empresaId:int}/{ano:int}/{mes:int}/{tipoOpe
         nomeArquivo);
 });
 
+app.MapGet("/downloads/nfse-excel/{empresaId:int}/{ano:int}/{mes:int}", async (
+    int empresaId,
+    int ano,
+    int mes,
+    INfseRepository nfseRepository,
+    IEmpresaRepository empresaRepository,
+    INotasEntradaExcelService excelService,
+    CancellationToken cancellationToken) =>
+{
+    if (mes is < 1 or > 12 || ano is < 2000 or > 2100)
+        return Results.BadRequest("Competência inválida.");
+
+    var empresa = await empresaRepository.GetByIdAsync(empresaId, cancellationToken);
+    if (empresa is null) return Results.NotFound("Empresa não encontrada.");
+
+    var apuracao = await nfseRepository.GetApuracaoAsync(empresaId, empresa.Cnpj, ano, mes, cancellationToken);
+    if (apuracao.Notas.Count == 0)
+        return Results.NotFound("Nenhuma NFS-e encontrada para a competência.");
+
+    var arquivo = excelService.GerarNfse(apuracao.Notas);
+    return Results.File(
+        arquivo,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        $"nfse_{ano}_{mes:00}.xlsx");
+});
+
+app.MapGet("/downloads/nfse-xml/{tipo}/{empresaId:int}/{ano:int}/{mes:int}", async (
+    string tipo,
+    int empresaId,
+    int ano,
+    int mes,
+    INfseRepository nfseRepository,
+    IEmpresaRepository empresaRepository,
+    CancellationToken cancellationToken) =>
+{
+    if (mes is < 1 or > 12 || ano is < 2000 or > 2100)
+        return Results.BadRequest("Competência inválida.");
+    tipo = tipo.ToLowerInvariant();
+    if (tipo is not ("prestadas" or "tomadas"))
+        return Results.BadRequest("Tipo de NFS-e inválido.");
+
+    var empresa = await empresaRepository.GetByIdAsync(empresaId, cancellationToken);
+    if (empresa is null) return Results.NotFound("Empresa não encontrada.");
+    var documentos = await nfseRepository.GetXmlsAsync(empresaId, empresa.Cnpj, ano, mes, tipo, cancellationToken);
+    if (documentos.Count == 0)
+        return Results.NotFound($"Nenhum XML de NFS-e {tipo} encontrado para a competência.");
+
+    using var memoria = new MemoryStream();
+    using (var zip = new ZipArchive(memoria, ZipArchiveMode.Create, leaveOpen: true))
+    {
+        foreach (var documento in documentos)
+        {
+            var chave = new string(documento.ChaveAcesso.Where(char.IsLetterOrDigit).ToArray());
+            var sufixo = documento.Cancelada ? "_cancelada" : string.Empty;
+            var entrada = zip.CreateEntry($"{chave}{sufixo}.xml", CompressionLevel.Optimal);
+            await using var destino = entrada.Open();
+            await using var escritor = new StreamWriter(destino, new UTF8Encoding(false));
+            await escritor.WriteAsync(documento.Xml.AsMemory(), cancellationToken);
+        }
+    }
+
+    return Results.File(memoria.ToArray(), "application/zip", $"nfse_{tipo}_{ano}_{mes:00}.zip");
+});
+
+app.MapGet("/downloads/nfse-pdf/{chave}", async (
+    string chave,
+    IHttpClientFactory httpClientFactory,
+    CancellationToken cancellationToken) =>
+{
+    chave = new string(chave.Where(char.IsLetterOrDigit).ToArray());
+    if (chave.Length is < 40 or > 60)
+        return Results.BadRequest("Chave de acesso da NFS-e inválida.");
+
+    try
+    {
+        var client = httpClientFactory.CreateClient("DanfseNacional");
+        using var response = await client.GetAsync($"danfse/{Uri.EscapeDataString(chave)}", cancellationToken);
+        if (response.IsSuccessStatusCode)
+        {
+            var pdf = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+            if (pdf.Length > 4 && pdf[0] == (byte)'%' && pdf[1] == (byte)'P' && pdf[2] == (byte)'D' && pdf[3] == (byte)'F')
+                return Results.File(pdf, "application/pdf", $"nfse_{chave}.pdf");
+        }
+    }
+    catch (HttpRequestException) { }
+    catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested) { }
+
+    return Results.Redirect($"https://www.nfse.gov.br/ConsultaPublica/?chave={Uri.EscapeDataString(chave)}&tpc=1");
+});
+
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
@@ -304,4 +423,23 @@ static bool CfopTransferencia(string cfop)
         or "2151" or "2152" or "2408" or "2409"
         or "5151" or "5152" or "5408" or "5409"
         or "6151" or "6152" or "6408" or "6409";
+}
+
+static string NomeSeguroParaArquivo(string? valor, string valorPadrao)
+{
+    if (string.IsNullOrWhiteSpace(valor))
+    {
+        return valorPadrao;
+    }
+
+    var nome = new string(valor.Trim()
+        .Select(caractere => char.IsLetterOrDigit(caractere) ? caractere : '_')
+        .ToArray());
+
+    while (nome.Contains("__", StringComparison.Ordinal))
+    {
+        nome = nome.Replace("__", "_", StringComparison.Ordinal);
+    }
+
+    return nome.Trim('_');
 }

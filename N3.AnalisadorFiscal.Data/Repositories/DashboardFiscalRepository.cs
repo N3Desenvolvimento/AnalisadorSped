@@ -6,11 +6,13 @@ namespace N3.AnalisadorFiscal.Data.Repositories;
 public interface IDashboardFiscalRepository
 {
     Task<IReadOnlyList<EmpresaOpcaoDto>> GetEmpresasAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<SpedEnvioEmpresaAnoDto>> GetEmpresasComSpedNoAnoAsync(int ano, CancellationToken cancellationToken = default);
     Task<DashboardFiscalDto> GetDashboardAsync(int empresaId, DateTime competencia, CancellationToken cancellationToken = default);
     Task<DashboardFiscalAnualDto> GetDashboardAnualAsync(int empresaId, int ano, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<DashboardEntradaParticipanteDto>> GetEntradasPorParticipanteAsync(int empresaId, int ano, int mes, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<DashboardNotaEntradaFornecedorDto>> GetNotasEntradaFornecedorAsync(int empresaId, int ano, int mes, string codigoParticipante, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<DashboardNotaEntradaFornecedorDto>> GetNotasEntradaFornecedoresAsync(int empresaId, int ano, int mes, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<DashboardNotaEntradaItemDto>> GetItensNotaEntradaAsync(int spedC100Id, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<string>> GetFornecedoresComIcmsZeradoMesesAnterioresAsync(int empresaId, int ano, int mes, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<DashboardTopProdutoSaidaDto>> GetTopProdutosSaidaAsync(int empresaId, int ano, int mes, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<DashboardTopFornecedorEntradaDto>> GetTopFornecedoresEntradaAsync(int empresaId, int ano, int mes, CancellationToken cancellationToken = default);
@@ -47,6 +49,51 @@ public sealed class DashboardFiscalRepository : IDashboardFiscalRepository
             new CommandDefinition(sql, cancellationToken: cancellationToken));
 
         return empresas.AsList();
+    }
+
+    public async Task<IReadOnlyList<SpedEnvioEmpresaAnoDto>> GetEmpresasComSpedNoAnoAsync(
+        int ano, CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT
+                e.ID_EMPRESA AS EmpresaId,
+                e.RAZAO_SOCIAL AS RazaoSocial,
+                e.CNPJ AS Cnpj,
+                MONTH(a.DT_INI) AS Mes
+            FROM EMPRESA e
+            INNER JOIN SPED_ARQUIVO a ON a.ID_EMPRESA = e.ID_EMPRESA
+            WHERE a.DT_INI >= @Inicio
+              AND a.DT_INI < @Fim
+            GROUP BY e.ID_EMPRESA, e.RAZAO_SOCIAL, e.CNPJ, MONTH(a.DT_INI)
+            ORDER BY e.RAZAO_SOCIAL, e.CNPJ, MONTH(a.DT_INI);
+            """;
+
+        await using var connection = _connectionFactory.CreateConnection();
+        var linhas = await connection.QueryAsync<SpedEnvioEmpresaMesLinha>(
+            new CommandDefinition(sql, new
+            {
+                Inicio = new DateTime(ano, 1, 1),
+                Fim = new DateTime(ano + 1, 1, 1)
+            }, cancellationToken: cancellationToken));
+
+        return linhas
+            .GroupBy(item => new { item.EmpresaId, item.RazaoSocial, item.Cnpj })
+            .Select(grupo => new SpedEnvioEmpresaAnoDto
+            {
+                EmpresaId = grupo.Key.EmpresaId,
+                RazaoSocial = grupo.Key.RazaoSocial,
+                Cnpj = grupo.Key.Cnpj,
+                MesesEnviados = grupo.Select(item => item.Mes).ToHashSet()
+            })
+            .ToArray();
+    }
+
+    private sealed class SpedEnvioEmpresaMesLinha
+    {
+        public int EmpresaId { get; set; }
+        public string RazaoSocial { get; set; } = string.Empty;
+        public string Cnpj { get; set; } = string.Empty;
+        public int Mes { get; set; }
     }
 
     public async Task<DashboardFiscalAnualDto> GetDashboardAnualAsync(int empresaId, int ano, CancellationToken cancellationToken = default)
@@ -99,6 +146,33 @@ public sealed class DashboardFiscalRepository : IDashboardFiscalRepository
             new CommandDefinition(NotasEntradaFornecedoresSql, new { EmpresaId = empresaId, Ano = ano, Mes = mes }, commandTimeout: 30, cancellationToken: cancellationToken));
 
         return notas.AsList();
+    }
+
+    public async Task<IReadOnlyList<DashboardNotaEntradaItemDto>> GetItensNotaEntradaAsync(
+        int spedC100Id, CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT
+                c170.ID_C170 AS SpedC170Id,
+                COALESCE(c170.NUM_ITEM, 0) AS NumeroItem,
+                COALESCE(c170.COD_ITEM, '') AS CodigoItem,
+                COALESCE(NULLIF(p.DESCRICAO, ''), NULLIF(c170.DESCR_COMPL, ''), c170.COD_ITEM, '(Item sem descrição)') AS Descricao,
+                COALESCE(c170.CFOP, '') AS Cfop,
+                COALESCE(c170.CST_ICMS, '') AS CstIcms,
+                COALESCE(c170.VL_ITEM, 0) - COALESCE(c170.VL_DESC, 0) AS ValorItem,
+                COALESCE(c170.VL_BC_ICMS, 0) AS ValorBaseIcms,
+                COALESCE(c170.ALIQ_ICMS, 0) AS AliquotaIcms,
+                COALESCE(c170.VL_ICMS, 0) AS ValorIcmsCredito
+            FROM SPED_C170 c170
+            LEFT JOIN PRODUTO p ON p.ID_PRODUTO = c170.ID_PRODUTO
+            WHERE c170.ID_C100 = @SpedC100Id
+            ORDER BY COALESCE(c170.NUM_ITEM, 0), c170.ID_C170;
+            """;
+
+        await using var connection = _connectionFactory.CreateConnection();
+        return (await connection.QueryAsync<DashboardNotaEntradaItemDto>(
+            new CommandDefinition(sql, new { SpedC100Id = spedC100Id },
+                commandTimeout: 30, cancellationToken: cancellationToken))).AsList();
     }
 
     public async Task<IReadOnlyList<string>> GetFornecedoresComIcmsZeradoMesesAnterioresAsync(int empresaId, int ano, int mes, CancellationToken cancellationToken = default)

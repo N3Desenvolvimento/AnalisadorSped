@@ -1,0 +1,134 @@
+@page "/pre-analise-regras"
+@rendermode InteractiveServer
+@using System.Globalization
+@using N3.AnalisadorFiscal.Data.Dashboard
+@using N3.AnalisadorFiscal.Data.Repositories
+@inject IPreAnaliseSpedRepository Repository
+
+<PageTitle>Regras da pré-análise</PageTitle>
+
+<section class="rules-page">
+    <header class="rules-header">
+        <div><span class="eyebrow">Configuração fiscal</span><h1>Regras da pré-análise</h1><p>Consulte os critérios utilizados para classificar os itens e calcular o crédito permitido.</p></div>
+        <a class="back-button" href="/pre-analise-icms">Voltar para pré-análise</a>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(mensagem))
+    {
+        <div class="message error">@mensagem</div>
+    }
+
+    <section class="rules-summary">
+        <div><span>Total de regras</span><strong>@regras.Count</strong></div>
+        <div class="active-summary"><span>Ativas</span><strong>@regras.Count(x => x.Ativa)</strong></div>
+        <div class="inactive-summary"><span>Inativas</span><strong>@regras.Count(x => !x.Ativa)</strong></div>
+    </section>
+
+    <section class="filters-panel">
+        <div class="field"><label for="buscaRegra">Buscar</label><input id="buscaRegra" placeholder="Código, nome, NCM ou descrição" @bind="filtro" @bind:event="oninput" /></div>
+        <div class="field"><label for="situacaoRegra">Situação</label><select id="situacaoRegra" @bind="situacao"><option value="TODAS">Todas</option><option value="ATIVAS">Ativas</option><option value="INATIVAS">Inativas</option></select></div>
+        <span class="result-count">@RegrasFiltradas.Count regra(s) encontrada(s)</span>
+    </section>
+
+    @if (carregando)
+    {
+        <div class="empty-state">Carregando regras fiscais...</div>
+    }
+    else if (RegrasFiltradas.Count == 0)
+    {
+        <div class="empty-state">Nenhuma regra corresponde aos filtros informados.</div>
+    }
+    else
+    {
+        <div class="rules-table-wrap">
+        <table class="rules-table">
+            <colgroup><col class="col-order" /><col class="col-rule" /><col class="col-scope" /><col class="col-ncm" /><col class="col-criteria" /><col class="col-result" /><col class="col-validity" /><col class="col-status" /><col class="col-legal" /></colgroup>
+            <thead><tr><th>Ordem</th><th>Regra</th><th>Abrangência</th><th>NCM</th><th>Critérios do item</th><th>Resultado</th><th>Vigência</th><th>Situação</th><th>Fundamento</th></tr></thead>
+            <tbody>
+            @foreach (var regra in RegrasFiltradas)
+            {
+                <tr>
+                    <td class="order-cell">@regra.Prioridade</td>
+                    <td><strong class="rule-name">@regra.Nome</strong><small class="rule-code">@regra.Codigo</small></td>
+                    <td><span class="field-label">UF</span> @(regra.UfDestino ?? "Todas")<small><span class="field-label">Fornecedor</span> @FormatarFornecedores(regra.CnpjFornecedor)</small></td>
+                    <td><strong>@(regra.NcmPrefixo ?? "Qualquer")</strong><small>Exceções: @ListaOuNenhum(regra.NcmExcecoes)</small></td>
+                    <td><span class="field-label">Descrição</span> @ListaOuTodas(regra.TermosDescricao)<small>CST: @ListaOuTodas(regra.CstsAplicaveis) · CFOP: @ListaOuTodas(regra.CfopsAplicaveis)</small></td>
+                    <td><span class="result-badge @ClasseResultado(regra.Resultado)">@TextoResultado(regra.Resultado)</span><small>@TextoCredito(regra.PercentualCredito)</small></td>
+                    <td>@regra.VigenciaInicial.ToString("dd/MM/yyyy")<small>até @(regra.VigenciaFinal?.ToString("dd/MM/yyyy") ?? "sem término")</small></td>
+                    <td><span class="status-badge @(regra.Ativa ? "active" : "inactive")">@(regra.Ativa ? "Ativa" : "Inativa")</span></td>
+                    <td class="legal-cell">@(string.IsNullOrWhiteSpace(regra.FundamentoLegal) ? "Não informado" : regra.FundamentoLegal)</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+        </div>
+    }
+</section>
+
+@code {
+    private static readonly CultureInfo CulturaBrasil = new("pt-BR");
+    private IReadOnlyList<PreAnaliseRegraItemDto> regras = [];
+    private bool carregando = true;
+    private string filtro = string.Empty;
+    private string situacao = "TODAS";
+    private string? mensagem;
+
+    private IReadOnlyList<PreAnaliseRegraItemDto> RegrasFiltradas => regras
+        .Where(RegraCorresponde)
+        .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { regras = await Repository.GetRegrasAsync(); }
+        catch (Exception ex) { mensagem = $"Não foi possível carregar as regras fiscais: {ex.Message}"; }
+        finally { carregando = false; }
+    }
+
+    private bool RegraCorresponde(PreAnaliseRegraItemDto regra)
+    {
+        if (situacao == "ATIVAS" && !regra.Ativa) return false;
+        if (situacao == "INATIVAS" && regra.Ativa) return false;
+        if (string.IsNullOrWhiteSpace(filtro)) return true;
+        var termo = filtro.Trim();
+        return Contem(regra.Codigo, termo) || Contem(regra.Nome, termo) ||
+               Contem(regra.CnpjFornecedor, termo) || Contem(regra.NcmPrefixo, termo) || Contem(regra.TermosDescricao, termo) ||
+               Contem(regra.FundamentoLegal, termo);
+    }
+
+    private static bool Contem(string? valor, string termo) =>
+        valor?.Contains(termo, StringComparison.OrdinalIgnoreCase) == true;
+    private static string Lista(string valor) => valor.Replace(";", ", ");
+    private static string ListaOuTodas(string? valor) => string.IsNullOrWhiteSpace(valor) ? "Todos" : Lista(valor);
+    private static string ListaOuNenhum(string? valor) => string.IsNullOrWhiteSpace(valor) ? "Nenhuma" : Lista(valor);
+    private static string FormatarFornecedores(string? valor) => string.IsNullOrWhiteSpace(valor)
+        ? "Todos"
+        : string.Join(" · ", valor.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(FormatarCnpj));
+    private static string FormatarCnpj(string valor)
+    {
+        var digitos = new string(valor.Where(char.IsDigit).ToArray());
+        return digitos.Length == 14
+            ? $"{digitos[..2]}.{digitos[2..5]}.{digitos[5..8]}/{digitos[8..12]}-{digitos[12..]}"
+            : valor;
+    }
+    private static string TextoCredito(decimal? percentual) => percentual switch
+    {
+        0 => "Crédito permitido: zero",
+        not null => $"Crédito permitido: {percentual.Value.ToString("N2", CulturaBrasil)}% do valor do item",
+        _ => "Crédito definido após análise"
+    };
+    private static string ClasseResultado(string resultado) => resultado switch
+    {
+        "SEM_CREDITO_ST" => "blocked",
+        "SEM_CREDITO" => "blocked",
+        "CREDITO_PERMITIDO" => "approved",
+        _ => "review"
+    };
+    private static string TextoResultado(string resultado) => resultado switch
+    {
+        "SEM_CREDITO_ST" => "Sem crédito · ST",
+        "SEM_CREDITO" => "Sem crédito",
+        "CREDITO_PERMITIDO" => "Crédito permitido",
+        _ => resultado.Replace('_', ' ')
+    };
+}

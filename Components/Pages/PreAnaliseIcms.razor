@@ -1,0 +1,306 @@
+@page "/pre-analise-icms"
+@rendermode InteractiveServer
+@using System.Globalization
+@using Microsoft.AspNetCore.Components.Forms
+@using N3.AnalisadorFiscal.Data.Dashboard
+@using N3.AnalisadorFiscal.Data.Repositories
+@using N3.AnalisadorFiscal.Sped.Services
+@inject IPreAnaliseSpedImportService ImportService
+@inject IPreAnaliseSpedRepository Repository
+@inject IWebHostEnvironment Environment
+@inject IJSRuntime JS
+
+<PageTitle>Pré-análise de entradas</PageTitle>
+
+<section class="pre-analysis-page">
+    <div class="page-header">
+        <div><span class="eyebrow">Ambiente independente</span><h1>Pré-análise de notas de entrada</h1><p>Envie um novo SPED Fiscal. O arquivo será gravado somente nas estruturas de pré-análise.</p></div>
+        <a class="rules-button" href="/pre-analise-regras">Ver regras fiscais</a>
+    </div>
+
+    <section class="upload-panel">
+        <div class="field">
+            <label for="arquivoPreAnalise">Arquivo SPED Fiscal ICMS/IPI</label>
+            <InputFile id="arquivoPreAnalise" class="file-input" OnChange="SelecionarArquivo" disabled="@(importando || excluindo)" />
+        </div>
+        <button type="button" class="primary-button" @onclick="ImportarAsync" disabled="@(arquivo is null || importando || excluindo)">@(importando ? "Lendo e salvando..." : "Enviar para pré-análise")</button>
+        @if (arquivo is not null) { <span class="selected-file">@arquivo.Name</span> }
+    </section>
+
+    @if (!string.IsNullOrWhiteSpace(mensagem)) { <div class="message info">@mensagem</div> }
+
+    <section class="history-panel">
+        <div class="section-heading">
+            <div><span class="eyebrow">Histórico</span><h2>Pré-análises efetuadas</h2></div>
+            <span class="history-count">@historico.Count registro(s)</span>
+        </div>
+        @if (carregandoHistorico)
+        {
+            <div class="history-empty">Carregando pré-análises...</div>
+        }
+        else if (historico.Count == 0)
+        {
+            <div class="history-empty">Nenhuma pré-análise foi efetuada.</div>
+        }
+        else
+        {
+            <div class="history-table-wrap"><table class="history-table">
+                <thead><tr><th>ID</th><th>Empresa</th><th>Período</th><th>Importada em</th><th class="number">Notas</th><th class="number">Itens</th><th class="number">Valor total</th><th>Ações</th></tr></thead>
+                <tbody>
+                @foreach (var item in historico)
+                {
+                    <tr class="@(resultado?.PreAnaliseSpedId == item.PreAnaliseSpedId ? "selected-history-row" : null)">
+                        <td><strong>#@item.PreAnaliseSpedId</strong><small title="@item.NomeArquivo">@item.NomeArquivo</small></td>
+                        <td><strong>@item.RazaoSocial</strong><small>@item.Cnpj</small></td>
+                        <td>@item.PeriodoInicial.ToString("dd/MM/yyyy") a @item.PeriodoFinal.ToString("dd/MM/yyyy")</td>
+                        <td>@DataHoraLocal(item.ImportadoEm)</td>
+                        <td class="number">@item.TotalNotas</td>
+                        <td class="number">@item.TotalItens</td>
+                        <td class="number">@Moeda(item.ValorTotalNotas)</td>
+                        <td><div class="history-actions">
+                            <button type="button" class="view-button" @onclick="() => AbrirAsync(item)" disabled="@Ocupado">Abrir</button>
+                            @if (item.TotalNotas > 0)
+                            {
+                                <a class="history-excel-button" href="@UrlExcelDa(item.PreAnaliseSpedId)">Excel</a>
+                            }
+                            <button type="button" class="history-delete-button" @onclick="() => ExcluirAsync(item.PreAnaliseSpedId)" disabled="@Ocupado">
+                                @(excluindoId == item.PreAnaliseSpedId ? "Excluindo..." : "Excluir")
+                            </button>
+                        </div></td>
+                    </tr>
+                }
+                </tbody>
+            </table></div>
+        }
+    </section>
+
+    @if (resultado is not null)
+    {
+        <section class="file-summary">
+            <div><span>Empresa</span><strong>@resultado.RazaoSocial</strong><small>@resultado.Cnpj</small></div>
+            <div><span>Período</span><strong>@resultado.PeriodoInicial.ToString("dd/MM/yyyy") a @resultado.PeriodoFinal.ToString("dd/MM/yyyy")</strong></div>
+            <div><span>Notas de entrada</span><strong>@resultado.TotalNotas</strong></div>
+            <div><span>Itens</span><strong>@resultado.TotalItens</strong></div>
+        </section>
+        <div class="analysis-actions">
+            @if (notas.Count > 0)
+            {
+                <a class="excel-button" href="@UrlExcel">Baixar notas em Excel</a>
+            }
+            <button type="button" class="delete-button" @onclick="() => ExcluirAsync(resultado.PreAnaliseSpedId)" disabled="@Ocupado">
+                @(excluindo ? "Excluindo..." : "Excluir pré-análise")
+            </button>
+        </div>
+    }
+
+    @if (notas.Count > 0)
+    {
+        <section class="summary-grid">
+            <div><span>Notas</span><strong>@notas.Count</strong></div>
+            <div><span>Valor total</span><strong>@Moeda(notas.Sum(x => x.ValorDocumento))</strong></div>
+            <div><span>Base ICMS</span><strong>@Moeda(notas.Sum(x => x.ValorBaseIcms))</strong></div>
+            <div><span>ICMS informado</span><strong>@Moeda(notas.Sum(x => x.ValorIcmsCredito))</strong></div>
+            <div class="allowed-summary"><span>Crédito permitido</span><strong>@Moeda(notas.Sum(x => x.ValorIcmsCreditoPermitido))</strong></div>
+            <div class="difference-summary"><span>Divergência</span><strong>@Moeda(notas.Sum(x => x.DiferencaIcmsCredito))</strong></div>
+        </section>
+        <div class="table-wrap"><table class="notes-table">
+            <thead><tr><th></th><th>Nota</th><th>Participante</th><th>Data de entrada</th><th>Chave</th><th class="number">Valor total</th><th class="number">ICMS informado</th><th class="number">Crédito permitido</th><th class="number">Divergência</th></tr></thead>
+            <tbody>
+            @foreach (var nota in notas)
+            {
+                <tr class="note-row">
+                    <td><button type="button" class="expand-button" @onclick="() => AlternarItensAsync(nota)">@(notasAbertas.Contains(nota.SpedC100Id) ? "−" : "+")</button></td>
+                    <td><strong>@nota.NumeroDocumento</strong><small>Modelo @nota.CodigoModelo · Série @nota.Serie</small></td>
+                    <td><strong>@nota.NomeParticipante</strong><small>@nota.CodigoParticipante</small></td>
+                    <td>@Data(nota.DataEntradaSaida ?? nota.DataDocumento)</td>
+                    <td class="key-cell" title="@nota.ChaveNfe">@(string.IsNullOrWhiteSpace(nota.ChaveNfe) ? "-" : nota.ChaveNfe)</td>
+                    <td class="number">@Moeda(nota.ValorDocumento)</td><td class="number credit">@Moeda(nota.ValorIcmsCredito)</td>
+                    <td class="number allowed-credit">@Moeda(nota.ValorIcmsCreditoPermitido)@if (nota.ItensParaRevisao > 0) { <small>@nota.ItensParaRevisao item(ns) para revisar</small> }</td>
+                    <td class="number @(nota.DiferencaIcmsCredito > 0 ? "credit-difference" : null)">@Moeda(nota.DiferencaIcmsCredito)@if (nota.ItensComDivergencia > 0) { <small>@nota.ItensComDivergencia item(ns)</small> }</td>
+                </tr>
+                @if (notasAbertas.Contains(nota.SpedC100Id))
+                {
+                    <tr class="items-row"><td colspan="9">
+                    @if (!itensPorNota.TryGetValue(nota.SpedC100Id, out var itens)) { <div class="loading-items">Carregando itens...</div> }
+                    else if (itens.Count == 0) { <div class="empty-items">Nenhum item C170 encontrado para esta nota.</div> }
+                    else { <table class="items-table"><thead><tr><th>Item</th><th>Código</th><th>Descrição</th><th>NCM</th><th>CFOP</th><th>CST</th><th class="number">Valor</th><th class="number">Base ICMS</th><th class="number">Alíquota</th><th class="number">ICMS informado</th><th>Validação</th><th class="number">Crédito permitido</th><th class="number">Diferença</th></tr></thead><tbody>
+                        @foreach (var item in itens)
+                        {
+                            <tr>
+                                <td>@item.NumeroItem</td><td>@item.CodigoItem</td><td>@item.Descricao</td>
+                                <td>@(string.IsNullOrWhiteSpace(item.Ncm) ? "-" : item.Ncm)</td><td>@item.Cfop</td><td>@item.CstIcms</td>
+                                <td class="number">@Moeda(item.ValorItem)</td><td class="number">@Moeda(item.ValorBaseIcms)</td>
+                                <td class="number">@Percentual(item.AliquotaIcms)</td><td class="number credit">@Moeda(item.ValorIcmsCredito)</td>
+                                <td class="validation-cell" title="@item.Justificativa">
+                                    <span class="validation-badge @ClasseClassificacao(item.Classificacao)">@TextoClassificacao(item.Classificacao)</span>
+                                    @if (!string.IsNullOrWhiteSpace(item.RegraCodigo)) { <small>@item.RegraCodigo · confiança @item.NivelConfianca.ToLowerInvariant()</small> }
+                                </td>
+                                <td class="number allowed-credit">@MoedaOpcional(item.CreditoPermitido)</td>
+                                <td class="number @(item.DiferencaCredito > 0 ? "credit-difference" : null)">@MoedaOpcional(item.DiferencaCredito)</td>
+                            </tr>
+                        }
+                    </tbody></table> }
+                    </td></tr>
+                }
+            }
+            </tbody>
+        </table></div>
+    }
+</section>
+
+@code {
+    private const long TamanhoMaximo = 200 * 1024 * 1024;
+    private static readonly CultureInfo CulturaBrasil = new("pt-BR");
+    private IBrowserFile? arquivo;
+    private bool importando;
+    private bool carregandoHistorico = true;
+    private bool carregandoAnalise;
+    private int? excluindoId;
+    private string? mensagem;
+    private PreAnaliseSpedImportacaoResultado? resultado;
+    private IReadOnlyList<PreAnaliseSpedResumoDto> historico = [];
+    private IReadOnlyList<DashboardNotaEntradaFornecedorDto> notas = [];
+    private readonly Dictionary<int, IReadOnlyList<DashboardNotaEntradaItemDto>> itensPorNota = [];
+    private readonly HashSet<int> notasAbertas = [];
+    private bool excluindo => excluindoId.HasValue;
+    private bool Ocupado => importando || carregandoAnalise || excluindo;
+    private string UrlExcel => resultado is null ? "#" : $"/downloads/pre-analise-icms/{resultado.PreAnaliseSpedId}";
+    private static string UrlExcelDa(int preAnaliseSpedId) => $"/downloads/pre-analise-icms/{preAnaliseSpedId}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            historico = await Repository.GetPreAnalisesAsync();
+        }
+        catch (Exception ex)
+        {
+            mensagem = $"Não foi possível carregar as pré-análises: {ex.Message}";
+        }
+        finally
+        {
+            carregandoHistorico = false;
+        }
+    }
+
+    private void SelecionarArquivo(InputFileChangeEventArgs e) { arquivo = e.File; resultado = null; notas = []; mensagem = null; }
+
+    private async Task ImportarAsync()
+    {
+        if (arquivo is null) return;
+        importando = true; mensagem = null; resultado = null; notas = []; notasAbertas.Clear(); itensPorNota.Clear();
+        var pasta = Path.Combine(Environment.ContentRootPath, "App_Data", "Uploads", "pre-analise-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(pasta);
+            var caminho = Path.Combine(pasta, Path.GetFileName(arquivo.Name));
+            await using (var origem = arquivo.OpenReadStream(TamanhoMaximo))
+            await using (var destino = File.Create(caminho)) { await origem.CopyToAsync(destino); }
+            resultado = await ImportService.ImportarAsync(caminho);
+            notas = await Repository.GetNotasAsync(resultado.PreAnaliseSpedId);
+            historico = await Repository.GetPreAnalisesAsync();
+            mensagem = $"Arquivo salvo exclusivamente na pré-análise #{resultado.PreAnaliseSpedId}.";
+        }
+        catch (Exception ex) { mensagem = $"Não foi possível processar o SPED para pré-análise: {ex.Message}"; }
+        finally { importando = false; if (Directory.Exists(pasta)) Directory.Delete(pasta, true); }
+    }
+
+    private async Task AlternarItensAsync(DashboardNotaEntradaFornecedorDto nota)
+    {
+        if (!notasAbertas.Add(nota.SpedC100Id)) { notasAbertas.Remove(nota.SpedC100Id); return; }
+        if (!itensPorNota.ContainsKey(nota.SpedC100Id))
+            itensPorNota[nota.SpedC100Id] = await Repository.GetItensAsync(nota.SpedC100Id);
+    }
+
+    private async Task AbrirAsync(PreAnaliseSpedResumoDto preAnalise)
+    {
+        carregandoAnalise = true;
+        mensagem = null;
+        notasAbertas.Clear();
+        itensPorNota.Clear();
+        try
+        {
+            notas = await Repository.GetNotasAsync(preAnalise.PreAnaliseSpedId);
+            resultado = new PreAnaliseSpedImportacaoResultado
+            {
+                PreAnaliseSpedId = preAnalise.PreAnaliseSpedId,
+                NomeArquivo = preAnalise.NomeArquivo,
+                RazaoSocial = preAnalise.RazaoSocial,
+                Cnpj = preAnalise.Cnpj,
+                PeriodoInicial = preAnalise.PeriodoInicial,
+                PeriodoFinal = preAnalise.PeriodoFinal,
+                TotalNotas = preAnalise.TotalNotas,
+                TotalItens = preAnalise.TotalItens
+            };
+            mensagem = $"Pré-análise #{preAnalise.PreAnaliseSpedId} carregada.";
+        }
+        catch (Exception ex)
+        {
+            mensagem = $"Não foi possível abrir a pré-análise: {ex.Message}";
+        }
+        finally
+        {
+            carregandoAnalise = false;
+        }
+    }
+
+    private async Task ExcluirAsync(int preAnaliseSpedId)
+    {
+        var confirmado = await JS.InvokeAsync<bool>("confirm",
+            $"Excluir a pré-análise #{preAnaliseSpedId}? Todas as notas e itens vinculados serão removidos.");
+        if (!confirmado) return;
+
+        excluindoId = preAnaliseSpedId;
+        mensagem = null;
+        try
+        {
+            var excluida = await Repository.ExcluirAsync(preAnaliseSpedId);
+            if (!excluida)
+            {
+                mensagem = $"A pré-análise #{preAnaliseSpedId} não foi encontrada.";
+                return;
+            }
+
+            if (resultado?.PreAnaliseSpedId == preAnaliseSpedId)
+            {
+                resultado = null;
+                notas = [];
+                notasAbertas.Clear();
+                itensPorNota.Clear();
+            }
+            historico = await Repository.GetPreAnalisesAsync();
+            mensagem = $"Pré-análise #{preAnaliseSpedId} excluída com sucesso.";
+        }
+        catch (Exception ex)
+        {
+            mensagem = $"Não foi possível excluir a pré-análise: {ex.Message}";
+        }
+        finally
+        {
+            excluindoId = null;
+        }
+    }
+
+    private static string Data(DateTime? v) => v?.ToString("dd/MM/yyyy") ?? "-";
+    private static string DataHoraLocal(DateTime v) =>
+        DateTime.SpecifyKind(v, DateTimeKind.Utc).ToLocalTime().ToString("dd/MM/yyyy HH:mm");
+    private static string Moeda(decimal v) => v.ToString("C", CulturaBrasil);
+    private static string MoedaOpcional(decimal? v) => v?.ToString("C", CulturaBrasil) ?? "-";
+    private static string Percentual(decimal v) => v.ToString("N2", CulturaBrasil) + "%";
+    private static string ClasseClassificacao(string classificacao) => classificacao switch
+    {
+        "SEM_CREDITO_ST" => "blocked",
+        "SEM_CREDITO" => "blocked",
+        "REVISAR" => "review",
+        "CREDITO_PERMITIDO" => "approved",
+        _ => "pending"
+    };
+    private static string TextoClassificacao(string classificacao) => classificacao switch
+    {
+        "SEM_CREDITO_ST" => "Sem crédito · ST",
+        "SEM_CREDITO" => "Sem crédito",
+        "REVISAR" => "Revisar",
+        "CREDITO_PERMITIDO" => "Crédito permitido",
+        _ => "Sem regra"
+    };
+}

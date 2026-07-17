@@ -12,6 +12,8 @@ public static class DependencyInjection
         services.AddScoped<EfdContribuicoesParser>();
         services.AddScoped<IEfdIcmsImportService, EfdIcmsImportService>();
         services.AddScoped<IEfdContribuicoesImportService, EfdContribuicoesImportService>();
+        services.AddScoped<IPreAnaliseItemRuleService, PreAnaliseItemRuleService>();
+        services.AddScoped<IPreAnaliseSpedImportService, PreAnaliseSpedImportService>();
 
         return services;
     }

@@ -1,0 +1,26 @@
+.controle-page { max-width: 1600px; padding: 2.5rem 2rem; color: #172033; }
+.page-header { display: flex; justify-content: space-between; align-items: end; gap: 1rem; margin-bottom: 1.25rem; }
+.page-header h1 { margin: 0; font-size: 2rem; }
+.page-header p { margin: .35rem 0 0; color: #64748b; }
+.year-filter { display: grid; gap: .35rem; min-width: 130px; }
+.year-filter label { font-weight: 700; color: #334155; }
+.year-filter select { min-height: 2.5rem; padding: .45rem .65rem; border: 1px solid #cbd5e1; border-radius: 6px; background: white; }
+.summary, .state-message { margin-bottom: 1rem; padding: .8rem 1rem; border: 1px solid #dbe2ea; border-radius: 6px; background: #fff; }
+.table-wrap { overflow-x: auto; border: 1px solid #dbe2ea; border-radius: 8px; background: #fff; }
+.control-table { width: 100%; min-width: 1050px; border-collapse: collapse; }
+.control-table th, .control-table td { padding: .75rem .55rem; border-bottom: 1px solid #e7ebf0; text-align: center; }
+.control-table th { position: sticky; top: 0; background: #f4f7fa; color: #475569; font-size: .78rem; text-transform: uppercase; }
+.control-table .company-column, .company-cell { min-width: 300px; text-align: left; }
+.company-cell strong, .company-cell span { display: block; }
+.company-cell span { margin-top: .2rem; color: #64748b; font-size: .82rem; }
+.control-table tbody tr:hover { background: #f8fbff; }
+.control-table tbody tr:last-child td { border-bottom: 0; }
+.month-cell { width: 62px; }
+.sent, .not-sent { display: inline-flex; width: 2rem; height: 2rem; align-items: center; justify-content: center; border-radius: 50%; font-weight: 800; }
+.sent { background: #d1fae5; color: #047857; text-decoration: none; transition: transform .12s, background .12s; }
+.sent:hover { transform: scale(1.08); background: #a7f3d0; color: #065f46; }
+.not-sent { background: #f1f5f9; color: #94a3b8; }
+.legend { display: flex; align-items: center; gap: .5rem; margin-top: .85rem; color: #64748b; font-size: .85rem; }
+.legend-sent { color: #047857; font-weight: 800; }
+.legend-missing { margin-left: .65rem; color: #94a3b8; font-weight: 800; }
+@media (max-width: 700px) { .controle-page { padding: 1.5rem 1rem; } .page-header { align-items: stretch; flex-direction: column; } }

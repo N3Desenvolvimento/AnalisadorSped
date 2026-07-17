@@ -1,0 +1,142 @@
+@page "/dashboard-pis-cofins/cst/{EmpresaId:int}/{Ano:int}/{Mes:int}"
+@rendermode InteractiveServer
+@using System.Globalization
+@using N3.AnalisadorFiscal.Data.Dashboard
+@using N3.AnalisadorFiscal.Data.Repositories
+@inject IDashboardPisCofinsRepository Repository
+@inject NavigationManager Navigation
+
+<PageTitle>Resumo por CST - PIS/COFINS</PageTitle>
+
+<section class="cst-page">
+    <div class="page-header">
+        <div><span class="eyebrow">@Mes.ToString("00")/@Ano</span><h1>Resumo por CST</h1></div>
+        <button type="button" class="secondary-button" @onclick="Voltar">Voltar</button>
+    </div>
+
+    @if (carregando)
+    {
+        <div class="message info">Carregando resumo por CST...</div>
+    }
+    else if (!string.IsNullOrWhiteSpace(mensagem))
+    {
+        <div class="message info">@mensagem</div>
+    }
+    else
+    {
+        <section class="summary-grid">
+            <div><span class="summary-label">Total de entradas</span><strong>@Moeda(Total("0", x => x.ValorOperacao))</strong></div>
+            <div><span class="summary-label">Total de saídas</span><strong>@Moeda(Total("1", x => x.ValorOperacao))</strong></div>
+            <div><span class="summary-label">Débito PIS</span><strong>@Moeda(DebitoPis)</strong></div>
+            <div><span class="summary-label">Crédito PIS</span><strong>@Moeda(CreditoPis)</strong></div>
+            <div><span class="summary-label">PIS a pagar</span><strong>@Moeda(PisAPagar)</strong></div>
+            <div><span class="summary-label">Débito COFINS</span><strong>@Moeda(DebitoCofins)</strong></div>
+            <div><span class="summary-label">Crédito COFINS</span><strong>@Moeda(CreditoCofins)</strong></div>
+            <div><span class="summary-label">COFINS a pagar</span><strong>@Moeda(CofinsAPagar)</strong></div>
+        </section>
+
+        <div class="cst-table-wrap summary-table-wrap">
+            <table class="cst-table summary-table">
+                <thead>
+                    <tr><th>Operação</th><th class="number">Valor operação</th><th class="number">Base PIS</th><th class="number">PIS</th><th class="number">Base COFINS</th><th class="number">COFINS</th><th class="number">CSTs</th><th>Ações</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var resumo in Resumos)
+                    {
+                        <tr class="@(operacaoDetalhada == resumo.Indicador ? "selected-row" : null)">
+                            <td><span class="operation-badge @resumo.Classe">@resumo.Nome</span></td>
+                            <td class="number">@Moeda(resumo.ValorOperacao)</td>
+                            <td class="number">@Moeda(resumo.BasePis)</td>
+                            <td class="number highlight">@Moeda(resumo.ValorPis)</td>
+                            <td class="number">@Moeda(resumo.BaseCofins)</td>
+                            <td class="number highlight">@Moeda(resumo.ValorCofins)</td>
+                            <td class="number">@resumo.TotalCsts</td>
+                            <td><button type="button" class="detail-button" @onclick="() => AlternarDetalhe(resumo.Indicador)">@(operacaoDetalhada == resumo.Indicador ? "Ocultar" : "Detalhar")</button></td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr><td><strong>Total</strong></td><td class="number"><strong>@Moeda(itens.Sum(x => x.ValorOperacao))</strong></td><td class="number"><strong>@Moeda(itens.Sum(x => x.BasePis))</strong></td><td class="number highlight"><strong>@Moeda(itens.Sum(x => x.ValorPis))</strong></td><td class="number"><strong>@Moeda(itens.Sum(x => x.BaseCofins))</strong></td><td class="number highlight"><strong>@Moeda(itens.Sum(x => x.ValorCofins))</strong></td><td class="number"><strong>@itens.Count</strong></td><td></td></tr>
+                </tfoot>
+            </table>
+        </div>
+
+        @if (operacaoDetalhada is not null)
+        {
+            <section class="details-panel">
+                <div class="details-header">
+                    <div><span class="eyebrow">Detalhamento</span><h2>CSTs de @(operacaoDetalhada == "0" ? "Entradas" : "Saídas")</h2></div>
+                    <span class="detail-count">@ItensDetalhados.Count combinações</span>
+                </div>
+                @if (ItensDetalhados.Count == 0)
+                {
+                    <div class="message info">Nenhum CST encontrado para esta operação.</div>
+                }
+                else
+                {
+                    <div class="cst-table-wrap">
+                        <table class="cst-table">
+                            <thead><tr><th>CST PIS</th><th>CST COFINS</th><th class="number">Valor operação</th><th class="number">Base PIS</th><th class="number">PIS</th><th class="number">Base COFINS</th><th class="number">COFINS</th></tr></thead>
+                            <tbody>
+                                @foreach (var item in ItensDetalhados)
+                                {
+                                    <tr><td><strong>@ExibirCst(item.CstPis)</strong></td><td><strong>@ExibirCst(item.CstCofins)</strong></td><td class="number">@Moeda(item.ValorOperacao)</td><td class="number">@Moeda(item.BasePis)</td><td class="number highlight">@Moeda(item.ValorPis)</td><td class="number">@Moeda(item.BaseCofins)</td><td class="number highlight">@Moeda(item.ValorCofins)</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </section>
+        }
+    }
+</section>
+
+@code {
+    private static readonly CultureInfo CulturaBrasil = new("pt-BR");
+    private IReadOnlyList<DashboardPisCofinsCstDto> itens = [];
+    private DashboardPisCofinsMesDto? apuracao;
+    private string? operacaoDetalhada;
+    private bool carregando = true;
+    private string? mensagem;
+    private IReadOnlyList<DashboardPisCofinsCstDto> ItensDetalhados => operacaoDetalhada is null ? [] : itens.Where(x => x.IndicadorOperacao == operacaoDetalhada).ToArray();
+    private IReadOnlyList<ResumoOperacao> Resumos => [CriarResumo("0", "Entradas", "entry"), CriarResumo("1", "Saídas", "exit")];
+    private decimal DebitoPis => apuracao?.DebitoPis ?? 0;
+    private decimal CreditoPis => apuracao?.CreditoPis ?? 0;
+    private decimal PisAPagar => apuracao?.PisAPagar ?? 0;
+    private decimal DebitoCofins => apuracao?.DebitoCofins ?? 0;
+    private decimal CreditoCofins => apuracao?.CreditoCofins ?? 0;
+    private decimal CofinsAPagar => apuracao?.CofinsAPagar ?? 0;
+
+    [Parameter] public int EmpresaId { get; set; }
+    [Parameter] public int Ano { get; set; }
+    [Parameter] public int Mes { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var resumoTask = Repository.GetResumoCstAsync(EmpresaId, Ano, Mes);
+            var mesesTask = Repository.GetMesesImportadosAsync(EmpresaId, Ano);
+            await Task.WhenAll(resumoTask, mesesTask);
+            itens = await resumoTask;
+            apuracao = (await mesesTask).FirstOrDefault(x => x.Mes == Mes);
+            if (itens.Count == 0) mensagem = "Nenhum item com CST encontrado para esta competência.";
+        }
+        catch (Exception ex) { mensagem = $"Não foi possível carregar o resumo por CST: {ex.Message}"; }
+        finally { carregando = false; }
+    }
+
+    private ResumoOperacao CriarResumo(string indicador, string nome, string classe)
+    {
+        var dados = itens.Where(x => x.IndicadorOperacao == indicador).ToArray();
+        return new(indicador, nome, classe, dados.Sum(x => x.ValorOperacao), dados.Sum(x => x.BasePis), dados.Sum(x => x.ValorPis), dados.Sum(x => x.BaseCofins), dados.Sum(x => x.ValorCofins), dados.Length);
+    }
+
+    private decimal Total(string indicador, Func<DashboardPisCofinsCstDto, decimal> seletor) => itens.Where(x => x.IndicadorOperacao == indicador).Sum(seletor);
+    private void AlternarDetalhe(string indicador) => operacaoDetalhada = operacaoDetalhada == indicador ? null : indicador;
+    private void Voltar() => Navigation.NavigateTo("/dashboard-pis-cofins");
+    private static string Moeda(decimal valor) => valor.ToString("C", CulturaBrasil);
+    private static string ExibirCst(string valor) => string.IsNullOrWhiteSpace(valor) ? "Não informado" : valor;
+
+    private sealed record ResumoOperacao(string Indicador, string Nome, string Classe, decimal ValorOperacao, decimal BasePis, decimal ValorPis, decimal BaseCofins, decimal ValorCofins, int TotalCsts);
+}

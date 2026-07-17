@@ -11,6 +11,8 @@ public interface ISpedArquivoRepository
     Task<bool> ExistsByCnpjCompetenciaAsync(string cnpj, int ano, int mes, CancellationToken cancellationToken = default);
     Task<bool> ExistsByCnpjCompetenciaTipoAsync(string cnpj, int ano, int mes, string tipoArquivo, CancellationToken cancellationToken = default);
     Task<int> DeleteByEmpresaCompetenciaAsync(int empresaId, int ano, int mes, CancellationToken cancellationToken = default);
+    Task<int> DeleteByEmpresaCompetenciaTipoAsync(int empresaId, int ano, int mes, string tipoArquivo,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class SpedArquivoRepository : RepositoryBase, ISpedArquivoRepository
@@ -94,6 +96,14 @@ public sealed class SpedArquivoRepository : RepositoryBase, ISpedArquivoReposito
     }
 
     public async Task<int> DeleteByEmpresaCompetenciaAsync(int empresaId, int ano, int mes, CancellationToken cancellationToken = default)
+        => await DeleteByEmpresaCompetenciaTipoInternoAsync(empresaId, ano, mes, null, cancellationToken);
+
+    public async Task<int> DeleteByEmpresaCompetenciaTipoAsync(int empresaId, int ano, int mes, string tipoArquivo,
+        CancellationToken cancellationToken = default)
+        => await DeleteByEmpresaCompetenciaTipoInternoAsync(empresaId, ano, mes, tipoArquivo, cancellationToken);
+
+    private async Task<int> DeleteByEmpresaCompetenciaTipoInternoAsync(int empresaId, int ano, int mes,
+        string? tipoArquivo, CancellationToken cancellationToken)
     {
         const string sql = """
             DECLARE @Arquivos TABLE (ID_ARQUIVO INT PRIMARY KEY);
@@ -107,7 +117,8 @@ public sealed class SpedArquivoRepository : RepositoryBase, ISpedArquivoReposito
             FROM SPED_ARQUIVO
             WHERE ID_EMPRESA = @EmpresaId
               AND YEAR(DT_INI) = @Ano
-              AND MONTH(DT_INI) = @Mes;
+              AND MONTH(DT_INI) = @Mes
+              AND (@TipoArquivo IS NULL OR TIPO_ARQUIVO = @TipoArquivo);
 
             INSERT INTO @C100 (ID_C100)
             SELECT ID_C100
@@ -125,6 +136,7 @@ public sealed class SpedArquivoRepository : RepositoryBase, ISpedArquivoReposito
             WHERE ID_ARQUIVO IN (SELECT ID_ARQUIVO FROM @Arquivos);
 
             DELETE FROM EFD_CONTRIB_C170 WHERE ID_CONTRIB_C100 IN (SELECT ID_CONTRIB_C100 FROM @ContribC100);
+            DELETE FROM EFD_CONTRIB_C175 WHERE ID_CONTRIB_C100 IN (SELECT ID_CONTRIB_C100 FROM @ContribC100);
             DELETE FROM EFD_CONTRIB_A170 WHERE ID_CONTRIB_A100 IN (SELECT ID_CONTRIB_A100 FROM @ContribA100);
             DELETE FROM EFD_CONTRIB_RESUMO_CST WHERE ID_ARQUIVO IN (SELECT ID_ARQUIVO FROM @Arquivos);
             DELETE FROM EFD_CONTRIB_M600 WHERE ID_ARQUIVO IN (SELECT ID_ARQUIVO FROM @Arquivos);
@@ -152,7 +164,7 @@ public sealed class SpedArquivoRepository : RepositoryBase, ISpedArquivoReposito
         try
         {
             var ids = await connection.QueryAsync<int>(
-                new CommandDefinition(sql, new { EmpresaId = empresaId, Ano = ano, Mes = mes }, transaction, commandTimeout: 30, cancellationToken: cancellationToken));
+                new CommandDefinition(sql, new { EmpresaId = empresaId, Ano = ano, Mes = mes, TipoArquivo = tipoArquivo }, transaction, commandTimeout: 30, cancellationToken: cancellationToken));
 
             await transaction.CommitAsync(cancellationToken);
             return ids.Count();

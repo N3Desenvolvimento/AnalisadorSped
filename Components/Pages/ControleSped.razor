@@ -1,0 +1,129 @@
+@page "/controle-sped"
+@rendermode InteractiveServer
+@using N3.AnalisadorFiscal.Data.Dashboard
+@using N3.AnalisadorFiscal.Data.Repositories
+@inject IDashboardFiscalRepository DashboardFiscalRepository
+
+<PageTitle>Controle de SPED</PageTitle>
+
+<section class="controle-page">
+    <header class="page-header">
+        <div>
+            <h1>Controle de SPED</h1>
+            <p>Empresas que enviaram ao menos um arquivo no ano selecionado.</p>
+        </div>
+        <div class="year-filter">
+            <label for="ano-controle">Ano</label>
+            <select id="ano-controle" @bind="anoSelecionado" @bind:after="CarregarAsync" disabled="@carregando">
+                @foreach (var ano in anos)
+                {
+                    <option value="@ano">@ano</option>
+                }
+            </select>
+        </div>
+    </header>
+
+    @if (carregando)
+    {
+        <div class="state-message">Carregando empresas...</div>
+    }
+    else if (!string.IsNullOrWhiteSpace(mensagem))
+    {
+        <div class="state-message">@mensagem</div>
+    }
+    else
+    {
+        <div class="summary"><strong>@empresas.Count</strong> empresa(s) com SPED em @anoSelecionado</div>
+        <div class="table-wrap">
+            <table class="control-table">
+                <thead>
+                    <tr>
+                        <th class="company-column">Empresa</th>
+                        @foreach (var mes in Meses)
+                        {
+                            <th title="@mes.Nome">@mes.Abreviacao</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var empresa in empresas)
+                    {
+                        <tr>
+                            <td class="company-cell">
+                                <strong>@empresa.RazaoSocial</strong>
+                                <span>@FormatarCnpj(empresa.Cnpj)</span>
+                            </td>
+                            @foreach (var mes in Meses)
+                            {
+                                <td class="month-cell">
+                                    @if (empresa.MesesEnviados.Contains(mes.Numero))
+                                    {
+                                        <a class="sent" title="Abrir @mes.Nome no Dashboard Fiscal"
+                                           aria-label="SPED de @mes.Nome enviado; abrir Dashboard Fiscal"
+                                           href="@MontarUrlDashboard(empresa.EmpresaId, mes.Numero)">✓</a>
+                                    }
+                                    else
+                                    {
+                                        <span class="not-sent" title="Não enviado" aria-label="SPED de @mes.Nome não enviado">—</span>
+                                    }
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <div class="legend"><span class="legend-sent">✓</span> Enviado <span class="legend-missing">—</span> Não enviado</div>
+    }
+</section>
+
+@code {
+    private static readonly (int Numero, string Nome, string Abreviacao)[] Meses =
+    [
+        (1, "Janeiro", "Jan"), (2, "Fevereiro", "Fev"), (3, "Março", "Mar"),
+        (4, "Abril", "Abr"), (5, "Maio", "Mai"), (6, "Junho", "Jun"),
+        (7, "Julho", "Jul"), (8, "Agosto", "Ago"), (9, "Setembro", "Set"),
+        (10, "Outubro", "Out"), (11, "Novembro", "Nov"), (12, "Dezembro", "Dez")
+    ];
+
+    private readonly IReadOnlyList<int> anos = Enumerable.Range(DateTime.Today.Year - 5, 7).Reverse().ToArray();
+    private IReadOnlyList<SpedEnvioEmpresaAnoDto> empresas = [];
+    private int anoSelecionado = DateTime.Today.Year;
+    private bool carregando;
+    private string? mensagem;
+
+    protected override Task OnInitializedAsync() => CarregarAsync();
+
+    private async Task CarregarAsync()
+    {
+        carregando = true;
+        mensagem = null;
+        try
+        {
+            empresas = await DashboardFiscalRepository.GetEmpresasComSpedNoAnoAsync(anoSelecionado);
+            if (empresas.Count == 0)
+            {
+                mensagem = $"Nenhuma empresa enviou arquivo SPED em {anoSelecionado}.";
+            }
+        }
+        catch (Exception ex)
+        {
+            mensagem = $"Não foi possível carregar o controle de SPED: {ex.Message}";
+        }
+        finally
+        {
+            carregando = false;
+        }
+    }
+
+    private string MontarUrlDashboard(int empresaId, int mes) =>
+        $"/dashboard-fiscal/{empresaId}/{anoSelecionado}/{mes}#sped-mes-{mes}";
+
+    private static string FormatarCnpj(string cnpj)
+    {
+        var digitos = new string(cnpj.Where(char.IsDigit).ToArray());
+        return digitos.Length == 14
+            ? $"{digitos[..2]}.{digitos[2..5]}.{digitos[5..8]}/{digitos[8..12]}-{digitos[12..]}"
+            : cnpj;
+    }
+}

@@ -1,0 +1,162 @@
+@page "/apuracao-iss"
+@rendermode InteractiveServer
+@using System.Globalization
+@using N3.AnalisadorFiscal.Data.Dashboard
+@using N3.AnalisadorFiscal.Data.Repositories
+@using N3.AnalisadorFiscal.Domain.Entities
+@using N3.AnalisadorFiscal.Web.Services
+@inject IEmpresaRepository EmpresaRepository
+@inject INfseRepository NfseRepository
+@inject INfseNacionalService NfseNacionalService
+
+<PageTitle>Apuração ISS</PageTitle>
+
+<section class="iss-page">
+    <div class="page-header"><h1>Apuração ISS</h1><p>NFS-e do Ambiente de Dados Nacional · Ambiente: <strong>@NfseNacionalService.Ambiente</strong></p></div>
+    <div class="certificate-info">
+        <strong>Certificado digital</strong>
+        <span>A lista apresenta somente empresas que possuem um certificado selecionado no Cadastro de empresas.</span>
+    </div>
+    <section class="filter-panel">
+        <div class="field empresa-field"><label>Empresa</label><select @bind="empresaId"><option value="0">Selecione</option>@foreach (var e in empresas){<option value="@e.Id">@e.RazaoSocial - @e.Cnpj</option>}</select></div>
+        <div class="field"><label>Mês</label><select @bind="mes">@for(var i=1;i<=12;i++){<option value="@i">@i.ToString("00")</option>}</select></div>
+        <div class="field"><label>Ano</label><input type="number" min="2022" max="2100" @bind="ano" /></div>
+        <button class="primary-button" @onclick="CarregarAsync" disabled="@(ocupado || empresaId == 0)">Atualizar</button>
+        <button class="sync-button" @onclick="SincronizarAsync" disabled="@(ocupado || empresaId == 0)">@(sincronizando ? "Sincronizando..." : "Sincronizar Portal Nacional")</button>
+        <button class="secondary-button" @onclick="ReprocessarAsync" disabled="@(ocupado || empresaId == 0)">Reprocessar histórico</button>
+    </section>
+    @if (empresas.Count == 0)
+    {
+        <div class="message info">Nenhuma empresa possui certificado cadastrado. Acesse o Cadastro de empresas e selecione um certificado.</div>
+    }
+    @if (competencias.Count > 0)
+    {
+        <div class="available-periods"><strong>Competências com notas:</strong>@foreach(var competencia in competencias.Take(12)){<button type="button" @onclick="() => AbrirCompetenciaAsync(competencia)">@competencia.ToString("MM/yyyy")</button>}</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(mensagem)){<div class="message @(erro ? "error" : "info")">@mensagem</div>}
+    @if (apuracao is not null)
+    {
+        <div class="cards">
+            <article><span>Serviços prestados</span><strong>@Moeda(apuracao.ValorServicosPrestados)</strong><small>@apuracao.QuantidadePrestadas nota(s)</small></article>
+            <article><span>ISS devido</span><strong>@Moeda(apuracao.IssDevido)</strong></article>
+            <article><span>ISS retido por tomadores</span><strong>@Moeda(apuracao.IssRetidoPorTomadores)</strong></article>
+            <article class="destaque"><span>ISS a recolher</span><strong>@Moeda(apuracao.IssARecolher)</strong></article>
+            <article><span>Serviços tomados</span><strong>@Moeda(apuracao.ValorServicosTomados)</strong><small>@apuracao.QuantidadeTomadas nota(s)</small></article>
+            <article><span>ISS retido como tomador</span><strong>@Moeda(apuracao.IssRetidoComoTomador)</strong></article>
+        </div>
+        @if (apuracao.Notas.Count > 0)
+        {
+            <div class="download-actions">
+                <a class="download-button" href="@($"/downloads/nfse-excel/{empresaId}/{ano}/{mes}")">Exportar lista para Excel</a>
+            </div>
+        }
+        @if (notaDetalhe is not null)
+        {
+            <section class="note-detail">
+                <header><div><span>Detalhamento da NFS-e</span><h2>Nº @(notaDetalhe.NumeroNota ?? "-")</h2></div><div style="display:flex;gap:.6rem;align-items:center"><a class="download-button" href="@ObterUrlPdf(notaDetalhe)" target="_blank">Baixar PDF</a><button type="button" @onclick="FecharDetalhe">Fechar</button></div></header>
+                <div class="detail-grid">
+                    <div class="full"><span>Chave de acesso</span><strong class="key">@notaDetalhe.ChaveAcesso</strong></div>
+                    <div><span>Emissão</span><strong>@notaDetalhe.DataEmissao.ToString("dd/MM/yyyy HH:mm")</strong></div>
+                    <div><span>Tipo</span><strong>@notaDetalhe.Tipo</strong></div>
+                    <div><span>Tomador</span><strong>@(notaDetalhe.NomeTomador ?? "Não informado")</strong></div>
+                    <div><span>CNPJ do tomador</span><strong>@(string.IsNullOrWhiteSpace(notaDetalhe.CnpjTomador) ? "Não informado" : notaDetalhe.CnpjTomador)</strong></div>
+                    <div><span>CNPJ do prestador</span><strong>@notaDetalhe.CnpjPrestador</strong></div>
+                    <div><span>Nome do prestador</span><strong>@(notaDetalhe.NomePrestador ?? "Não informado")</strong></div>
+                    <div><span>Código do serviço</span><strong>@(notaDetalhe.CodigoServico ?? "-")</strong></div>
+                    <div><span>Município de incidência</span><strong>@(notaDetalhe.MunicipioIncidencia ?? "-")</strong></div>
+                    <div><span>Valor dos serviços</span><strong>@Moeda(notaDetalhe.ValorServicos)</strong></div>
+                    <div><span>Base de cálculo</span><strong>@Moeda(notaDetalhe.BaseCalculo)</strong></div>
+                    <div><span>Alíquota</span><strong>@notaDetalhe.Aliquota.ToString("N2")%</strong></div>
+                    <div><span>Valor do ISS</span><strong>@Moeda(notaDetalhe.ValorIss)</strong></div>
+                    <div><span>ISS retido</span><strong>@(notaDetalhe.IssRetido ? "Sim" : "Não")</strong></div>
+                    <div><span>PIS retido</span><strong>@Moeda(notaDetalhe.ValorPisRetido)</strong></div>
+                    <div><span>Cofins retida</span><strong>@Moeda(notaDetalhe.ValorCofinsRetido)</strong></div>
+                    <div><span>IRRF retido</span><strong>@Moeda(notaDetalhe.ValorIrrfRetido)</strong></div>
+                    <div><span>CSLL retida</span><strong>@Moeda(notaDetalhe.ValorCsllRetido)</strong></div>
+                    <div><span>INSS retido</span><strong>@Moeda(notaDetalhe.ValorInssRetido)</strong></div>
+                    <div><span>Total retido</span><strong>@Moeda(notaDetalhe.TotalRetido)</strong></div>
+                </div>
+            </section>
+        }
+
+        <section class="notes-section">
+            <header><div><h2>Serviços prestados</h2><span>@apuracao.QuantidadePrestadas NFS-e</span></div><div class="section-actions"><strong>@Moeda(apuracao.ValorServicosPrestados)</strong>@if (apuracao.QuantidadePrestadas > 0) { <a class="download-button" href="@($"/downloads/nfse-xml/prestadas/{empresaId}/{ano}/{mes}")">Baixar XMLs (.zip)</a> }</div></header>
+            <div class="table-wrap"><table><thead><tr><th>Número</th><th>Emissão</th><th>Tomador</th><th>CNPJ tomador</th><th>Serviço</th><th class="number">Valor</th><th class="number">ISS retido</th><th class="number">PIS</th><th class="number">Cofins</th><th class="number">IRRF</th><th class="number">CSLL</th><th class="number">INSS</th><th class="number">Total retido</th><th>PDF</th></tr></thead>
+            <tbody>@foreach(var n in apuracao.Notas.Where(n=>n.Tipo=="Prestada")){<tr><td><button class="note-link" type="button" @onclick="() => AbrirDetalhe(n)">@(n.NumeroNota ?? "Ver NFS-e")</button></td><td>@n.DataEmissao.ToString("dd/MM/yyyy")</td><td>@(n.NomeTomador ?? "-")</td><td>@(string.IsNullOrWhiteSpace(n.CnpjTomador) ? "-" : n.CnpjTomador)</td><td>@n.CodigoServico</td><td class="number">@Moeda(n.ValorServicos)</td><td class="number">@Moeda(n.IssRetido ? n.ValorIss : 0)</td><td class="number">@Moeda(n.ValorPisRetido)</td><td class="number">@Moeda(n.ValorCofinsRetido)</td><td class="number">@Moeda(n.ValorIrrfRetido)</td><td class="number">@Moeda(n.ValorCsllRetido)</td><td class="number">@Moeda(n.ValorInssRetido)</td><td class="number">@Moeda(n.TotalRetido)</td><td><a class="note-link" href="@ObterUrlPdf(n)" target="_blank">Baixar</a></td></tr>}</tbody></table></div>
+        </section>
+
+        <section class="notes-section">
+            <header><div><h2>Serviços tomados</h2><span>@apuracao.QuantidadeTomadas NFS-e</span></div><div class="section-actions"><strong>@Moeda(apuracao.ValorServicosTomados)</strong>@if (apuracao.QuantidadeTomadas > 0) { <a class="download-button" href="@($"/downloads/nfse-xml/tomadas/{empresaId}/{ano}/{mes}")">Baixar XMLs (.zip)</a> }</div></header>
+            <div class="table-wrap"><table><thead><tr><th>Número</th><th>Emissão</th><th>Prestador</th><th>Tomador</th><th>Serviço</th><th class="number">Valor</th><th class="number">ISS retido</th><th class="number">PIS</th><th class="number">Cofins</th><th class="number">IRRF</th><th class="number">CSLL</th><th class="number">INSS</th><th class="number">Total retido</th><th>PDF</th></tr></thead>
+            <tbody>@foreach(var n in apuracao.Notas.Where(n=>n.Tipo=="Tomada")){<tr><td><button class="note-link" type="button" @onclick="() => AbrirDetalhe(n)">@(n.NumeroNota ?? "Ver NFS-e")</button></td><td>@n.DataEmissao.ToString("dd/MM/yyyy")</td><td>@(n.NomePrestador ?? n.CnpjPrestador)</td><td>@(n.NomeTomador ?? "-")</td><td>@n.CodigoServico</td><td class="number">@Moeda(n.ValorServicos)</td><td class="number">@Moeda(n.IssRetido ? n.ValorIss : 0)</td><td class="number">@Moeda(n.ValorPisRetido)</td><td class="number">@Moeda(n.ValorCofinsRetido)</td><td class="number">@Moeda(n.ValorIrrfRetido)</td><td class="number">@Moeda(n.ValorCsllRetido)</td><td class="number">@Moeda(n.ValorInssRetido)</td><td class="number">@Moeda(n.TotalRetido)</td><td><a class="note-link" href="@ObterUrlPdf(n)" target="_blank">Baixar</a></td></tr>}</tbody></table></div>
+        </section>
+    }
+</section>
+
+@code {
+    private IReadOnlyList<Empresa> empresas=[]; private IReadOnlyList<DateTime> competencias=[]; private IssApuracaoDto? apuracao; private IssNotaDto? notaDetalhe;
+    private int empresaId, mes=DateTime.Today.Month, ano=DateTime.Today.Year; private bool ocupado, sincronizando, erro; private string? mensagem;
+    protected override async Task OnInitializedAsync()=>empresas=(await EmpresaRepository.GetAllAsync())
+        .Where(e=>!string.IsNullOrWhiteSpace(e.CertificadoThumbprint))
+        .OrderBy(e=>e.RazaoSocial)
+        .ToArray();
+    private async Task CarregarAsync(){ocupado=true;erro=false;try{var e=empresas.First(x=>x.Id==empresaId);competencias=await NfseRepository.GetCompetenciasAsync(empresaId);apuracao=await NfseRepository.GetApuracaoAsync(empresaId,e.Cnpj,ano,mes);mensagem=apuracao.Notas.Count==0&&competencias.Count>0?"Não há notas nesta competência. Selecione abaixo uma competência disponível.":null;}catch(Exception ex){erro=true;mensagem=ex.Message;}finally{ocupado=false;}}
+    private async Task SincronizarAsync()
+    {
+        ocupado=sincronizando=true; erro=false;
+        var e=empresas.First(x=>x.Id==empresaId);
+        try
+        {
+            var r=await NfseNacionalService.SincronizarAsync(empresaId,e.Cnpj);
+            mensagem=$"{r.Mensagem} Recebidos: {r.DocumentosRecebidos}; NFS-e importadas: {r.DocumentosImportados}; eventos: {r.EventosRecebidos}; não reconhecidos: {r.DocumentosNaoReconhecidos}. Último NSU: {r.UltimoNsu}.";
+        }
+        catch(Exception ex)
+        {
+            erro=true; mensagem=ex.Message;
+        }
+        finally
+        {
+            await CarregarAposSincronizacaoAsync(e);
+            ocupado=sincronizando=false;
+        }
+    }
+    private async Task ReprocessarAsync()
+    {
+        ocupado=sincronizando=true; erro=false;
+        var e=empresas.First(x=>x.Id==empresaId);
+        try
+        {
+            var r=await NfseNacionalService.ReprocessarAsync(empresaId,e.Cnpj);
+            mensagem=$"{r.Mensagem} Recebidos: {r.DocumentosRecebidos}; NFS-e importadas: {r.DocumentosImportados}; eventos: {r.EventosRecebidos}; não reconhecidos: {r.DocumentosNaoReconhecidos}. Último NSU: {r.UltimoNsu}.";
+        }
+        catch(Exception ex)
+        {
+            erro=true; mensagem=ex.Message;
+        }
+        finally
+        {
+            await CarregarAposSincronizacaoAsync(e);
+            ocupado=sincronizando=false;
+        }
+    }
+    private async Task CarregarAposSincronizacaoAsync(Empresa e)
+    {
+        competencias=await NfseRepository.GetCompetenciasAsync(empresaId);
+        apuracao=await NfseRepository.GetApuracaoAsync(empresaId,e.Cnpj,ano,mes);
+        if(apuracao.Notas.Count==0 && competencias.FirstOrDefault() is { Year: > 1 } maisRecente)
+        {
+            ano=maisRecente.Year; mes=maisRecente.Month;
+            apuracao=await NfseRepository.GetApuracaoAsync(empresaId,e.Cnpj,ano,mes);
+            mensagem += $" Exibindo a competência mais recente com notas: {maisRecente:MM/yyyy}.";
+        }
+    }
+    private async Task AbrirCompetenciaAsync(DateTime competencia)
+    {
+        ano=competencia.Year; mes=competencia.Month;
+        await CarregarAsync();
+    }
+    private void AbrirDetalhe(IssNotaDto nota)=>notaDetalhe=nota;
+    private void FecharDetalhe()=>notaDetalhe=null;
+    private static string ObterUrlPdf(IssNotaDto nota)=>$"/downloads/nfse-pdf/{Uri.EscapeDataString(nota.ChaveAcesso)}";
+    private static string Moeda(decimal v)=>v.ToString("C2",CultureInfo.GetCultureInfo("pt-BR"));
+}

@@ -8,6 +8,7 @@ namespace N3.AnalisadorFiscal.Web.Services;
 public interface INotasEntradaExcelService
 {
     byte[] Gerar(IReadOnlyList<DashboardNotaEntradaFornecedorDto> notas);
+    byte[] GerarNfse(IReadOnlyList<IssNotaDto> notas);
 }
 
 public sealed class NotasEntradaExcelService : INotasEntradaExcelService
@@ -28,6 +29,74 @@ public sealed class NotasEntradaExcelService : INotasEntradaExcelService
         }
 
         return stream.ToArray();
+    }
+
+    public byte[] GerarNfse(IReadOnlyList<IssNotaDto> notas)
+    {
+        using var stream = new MemoryStream();
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            AdicionarEntrada(archive, "[Content_Types].xml", ContentTypesXml());
+            AdicionarEntrada(archive, "_rels/.rels", RootRelsXml());
+            AdicionarEntrada(archive, "xl/workbook.xml", WorkbookXml("NFS-e"));
+            AdicionarEntrada(archive, "xl/_rels/workbook.xml.rels", WorkbookRelsXml());
+            AdicionarEntrada(archive, "xl/styles.xml", StylesXml());
+            AdicionarEntrada(archive, "xl/worksheets/sheet1.xml", WorksheetNfseXml(notas));
+        }
+
+        return stream.ToArray();
+    }
+
+    private static string WorksheetNfseXml(IReadOnlyList<IssNotaDto> notas)
+    {
+        var sb = new StringBuilder();
+        sb.Append("""
+            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+              <cols>
+                <col min="1" max="3" width="16" customWidth="1"/>
+                <col min="4" max="5" width="38" customWidth="1"/>
+                <col min="6" max="6" width="16" customWidth="1"/>
+                <col min="7" max="14" width="17" customWidth="1"/>
+                <col min="15" max="15" width="54" customWidth="1"/>
+              </cols>
+              <sheetData>
+            """);
+
+        AdicionarLinhaTexto(sb, 1, true, "Número", "Emissão", "Tipo", "Prestador", "Tomador", "Serviço",
+            "Valor dos serviços", "ISS retido", "PIS retido", "Cofins retida", "IRRF retido", "CSLL retida",
+            "INSS retido", "Total retido", "Chave de acesso");
+
+        var linha = 2;
+        foreach (var nota in notas)
+        {
+            sb.Append($"<row r=\"{linha}\">");
+            AdicionarCelulaTexto(sb, "A", linha, nota.NumeroNota ?? string.Empty);
+            AdicionarCelulaTexto(sb, "B", linha, FormatarData(nota.DataEmissao));
+            AdicionarCelulaTexto(sb, "C", linha, nota.Tipo);
+            AdicionarCelulaTexto(sb, "D", linha, nota.NomePrestador ?? nota.CnpjPrestador);
+            AdicionarCelulaTexto(sb, "E", linha, nota.NomeTomador ?? nota.CnpjTomador ?? string.Empty);
+            AdicionarCelulaTexto(sb, "F", linha, nota.CodigoServico ?? string.Empty);
+            AdicionarCelulaNumero(sb, "G", linha, nota.ValorServicos);
+            AdicionarCelulaNumero(sb, "H", linha, nota.IssRetido ? nota.ValorIss : 0);
+            AdicionarCelulaNumero(sb, "I", linha, nota.ValorPisRetido);
+            AdicionarCelulaNumero(sb, "J", linha, nota.ValorCofinsRetido);
+            AdicionarCelulaNumero(sb, "K", linha, nota.ValorIrrfRetido);
+            AdicionarCelulaNumero(sb, "L", linha, nota.ValorCsllRetido);
+            AdicionarCelulaNumero(sb, "M", linha, nota.ValorInssRetido);
+            AdicionarCelulaNumero(sb, "N", linha, nota.TotalRetido);
+            AdicionarCelulaTexto(sb, "O", linha, nota.ChaveAcesso);
+            sb.Append("</row>");
+            linha++;
+        }
+
+        sb.Append("""
+              </sheetData>
+              <autoFilter ref="A1:O1"/>
+              <pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>
+            </worksheet>
+            """);
+        return sb.ToString();
     }
 
     private static string WorksheetXml(IReadOnlyList<DashboardNotaEntradaFornecedorDto> notas)
@@ -51,13 +120,13 @@ public sealed class NotasEntradaExcelService : INotasEntradaExcelService
             """);
 
         AdicionarLinhaTexto(sb, 1, true,
-            "Data", "Fornecedor", "Nome", "CNPJ", "Modelo", "Serie", "Numero", "Situacao", "Chave NFe", "Valor nota", "Valor mercadoria", "Base ICMS", "ICMS credito", "Aliquota efetiva %");
+            "Data entrada", "Fornecedor", "Nome", "CNPJ", "Modelo", "Serie", "Numero", "Situacao", "Chave NFe", "Valor nota", "Valor mercadoria", "Base ICMS", "ICMS credito", "Aliquota efetiva %");
 
         var linha = 2;
         foreach (var nota in notas)
         {
             sb.Append($"<row r=\"{linha}\">");
-            AdicionarCelulaTexto(sb, "A", linha, FormatarData(nota.DataDocumento));
+            AdicionarCelulaTexto(sb, "A", linha, FormatarData(nota.DataEntradaSaida ?? nota.DataDocumento));
             AdicionarCelulaTexto(sb, "B", linha, nota.CodigoParticipante);
             AdicionarCelulaTexto(sb, "C", linha, nota.NomeParticipante);
             AdicionarCelulaTexto(sb, "D", linha, FormatarCnpj(nota.Cnpj));
@@ -174,11 +243,11 @@ public sealed class NotasEntradaExcelService : INotasEntradaExcelService
         </Relationships>
         """;
 
-    private static string WorkbookXml() => """
+    private static string WorkbookXml(string nomePlanilha = "Notas de Entrada") => $$"""
         <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
         <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
           <sheets>
-            <sheet name="Notas de Entrada" sheetId="1" r:id="rId1"/>
+            <sheet name="{{EscaparXml(nomePlanilha)}}" sheetId="1" r:id="rId1"/>
           </sheets>
         </workbook>
         """;

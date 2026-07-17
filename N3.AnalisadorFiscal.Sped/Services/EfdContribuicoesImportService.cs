@@ -207,9 +207,9 @@ public sealed class EfdContribuicoesImportService : IEfdContribuicoesImportServi
                     var campos = contribuicao.Campos;
                     var participanteId = ObterId(participantesPorCodigo, Campo(campos, 4));
                     var produtoId = ObterId(produtosPorCodigo, Campo(campos, 3));
-                    var paiId = contribuicao.Codigo == "C170" ? c100Atual : contribuicao.Codigo == "A170" ? a100Atual : null;
+                    var paiId = contribuicao.Codigo is "C170" or "C175" ? c100Atual : contribuicao.Codigo == "A170" ? a100Atual : null;
 
-                    if ((contribuicao.Codigo is "C170" or "A170") && paiId is null)
+                    if ((contribuicao.Codigo is "C170" or "C175" or "A170") && paiId is null)
                     {
                         resultado.Mensagens.Add($"Aviso: registro {contribuicao.Codigo} ignorado por nao possuir documento pai.");
                         break;
@@ -222,6 +222,7 @@ public sealed class EfdContribuicoesImportService : IEfdContribuicoesImportServi
                     {
                         case "C100": c100Atual = id; resultado.C100Importados++; break;
                         case "C170": resultado.C170Importados++; break;
+                        case "C175": resultado.C175Importados++; break;
                         case "A100": a100Atual = id; resultado.A100Importados++; break;
                         case "A170": resultado.A170Importados++; break;
                         case "M100": resultado.M100Importados++; break;

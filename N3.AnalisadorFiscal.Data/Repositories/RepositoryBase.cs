@@ -6,6 +6,7 @@ public abstract class RepositoryBase
 {
     protected const int CommandTimeoutSeconds = 30;
     private readonly IDbConnectionFactory _connectionFactory;
+    protected IDbConnectionFactory ConnectionFactory => _connectionFactory;
 
     protected RepositoryBase(IDbConnectionFactory connectionFactory)
     {

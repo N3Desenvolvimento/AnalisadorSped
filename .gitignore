@@ -488,6 +488,7 @@ $RECYCLE.BIN/
 *.zip
 *.rar
 *.sped
+!N3.AnalisadorFiscal.Sped/
 *.csv
 *.xlsx
 *.xml

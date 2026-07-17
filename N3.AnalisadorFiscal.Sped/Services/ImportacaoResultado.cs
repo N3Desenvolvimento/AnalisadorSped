@@ -19,6 +19,7 @@ public sealed class ImportacaoResultado
     public int ProdutosImportados { get; set; }
     public int C100Importados { get; set; }
     public int C170Importados { get; set; }
+    public int C175Importados { get; set; }
     public int C190Importados { get; set; }
     public int E110Importados { get; set; }
     public int E111Importados { get; set; }
@@ -33,6 +34,7 @@ public sealed class ImportacaoResultado
         + ProdutosImportados
         + C100Importados
         + C170Importados
+        + C175Importados
         + C190Importados
         + E110Importados
         + E111Importados
