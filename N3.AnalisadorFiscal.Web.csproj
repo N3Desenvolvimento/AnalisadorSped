@@ -10,6 +10,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>n3-analisador-fiscal-web</UserSecretsId>
   </PropertyGroup>
 
 
@@ -21,6 +22,7 @@
 
 
   <ItemGroup>
+    <PackageReference Include="FirebirdSql.Data.FirebirdClient" Version="10.3.4" />
     <PackageReference Include="MudBlazor" Version="9.6.0" />
   </ItemGroup>
 </Project>

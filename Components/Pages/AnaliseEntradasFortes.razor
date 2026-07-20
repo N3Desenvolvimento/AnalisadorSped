@@ -1,0 +1,62 @@
+@page "/analise-entradas-fortes"
+@rendermode InteractiveServer
+@using System.Globalization
+@using N3.AnalisadorFiscal.Data.Dashboard
+@using N3.AnalisadorFiscal.Data.Repositories
+@using N3.AnalisadorFiscal.Domain.Entities
+@using N3.AnalisadorFiscal.Web.Services
+@using N3.AnalisadorFiscal.Sped.Services
+@inject IEmpresaRepository EmpresaRepository
+@inject IPreAnaliseSpedRepository Repository
+@inject IPreAnaliseFortesFiscalService FortesFiscalService
+
+<PageTitle>Análise de entradas Fortes</PageTitle>
+
+<section class="fortes-page">
+    <header class="page-header"><div><span class="eyebrow">Consulta direta ao Fortes Fiscal</span><h1>Análise de notas de entrada</h1><p>Consulte as entradas escrituradas no Fortes e aplique as regras fiscais da pré-análise.</p></div><a class="rules-button" href="/pre-analise-regras">Ver regras fiscais</a></header>
+
+    <section class="query-panel">
+        <label class="company"><span>Empresa</span><select @bind="empresaId"><option value="0">Selecione</option>@foreach(var empresa in empresas){<option value="@empresa.Id">@empresa.RazaoSocial — código Fortes @empresa.CodigoEmpresaFiscalFortes</option>}</select></label>
+        <label><span>Mês</span><select @bind="mes">@for(var i=1;i<=12;i++){<option value="@i">@CulturaBrasil.DateTimeFormat.GetMonthName(i)</option>}</select></label>
+        <label><span>Ano</span><input type="number" min="2000" max="2100" @bind="ano" /></label>
+        <button type="button" @onclick="AnalisarAsync" disabled="@(carregando || empresaId==0)">@(carregando?"Consultando...":"Analisar entradas")</button>
+    </section>
+    @if(empresas.Count==0){<div class="message warning">Nenhuma empresa possui código Fiscal Fortes cadastrado.</div>}
+    @if(!string.IsNullOrWhiteSpace(mensagem)){<div class="message @(erro?"error":"success")">@mensagem</div>}
+
+    @if(resultado is not null)
+    {
+        <section class="file-summary"><div><span>Empresa</span><strong>@resultado.RazaoSocial</strong><small>@resultado.Cnpj</small></div><div><span>Período</span><strong>@resultado.PeriodoInicial.ToString("dd/MM/yyyy") a @resultado.PeriodoFinal.ToString("dd/MM/yyyy")</strong></div><div><span>Notas de entrada</span><strong>@resultado.TotalNotas</strong></div><div><span>Itens</span><strong>@resultado.TotalItens</strong></div></section>
+        <div class="analysis-actions"><label class="divergence-filter"><input type="checkbox" @bind="apenasDivergencias" /><span>Apenas notas com divergências</span></label><button type="button" class="ncm-button" @onclick="AlternarResumoNcmAsync">@(mostrarResumoNcm?"Ocultar resumo por NCM":"Resumo de divergências por NCM")</button></div>
+    }
+
+    @if(notas.Count>0)
+    {
+        var exibidas=NotasExibidas;
+        <section class="summary-grid"><div><span>Notas exibidas</span><strong>@exibidas.Count</strong></div><div><span>Valor total</span><strong>@Moeda(exibidas.Sum(x=>x.ValorDocumento))</strong></div><div><span>Base ICMS</span><strong>@Moeda(exibidas.Sum(x=>x.ValorBaseIcms))</strong></div><div><span>ICMS informado</span><strong>@Moeda(exibidas.Sum(x=>x.ValorIcmsCredito))</strong></div><div class="allowed"><span>Crédito permitido</span><strong>@Moeda(exibidas.Sum(x=>x.ValorIcmsCreditoPermitido))</strong></div><div class="difference"><span>Divergência</span><strong>@Moeda(exibidas.Sum(x=>x.DiferencaIcmsCredito))</strong></div></section>
+        @if(mostrarResumoNcm)
+        {
+            <section class="ncm-panel"><header><div><span class="eyebrow">Divergências</span><h2>Resumo por NCM</h2></div><strong>@Moeda(divergenciasNcm.Sum(x=>x.Divergencia))</strong></header>
+            @if(divergenciasNcm.Count==0){<div class="empty">Nenhuma divergência por NCM.</div>}else{<div class="table-wrap"><table><thead><tr><th>NCM</th><th class="number">Notas</th><th class="number">Itens</th><th class="number">Valor</th><th class="number">ICMS informado</th><th class="number">Crédito permitido</th><th class="number">Divergência</th></tr></thead><tbody>@foreach(var ncm in divergenciasNcm){<tr><td><strong>@ncm.Ncm</strong></td><td class="number">@ncm.QuantidadeNotas</td><td class="number">@ncm.QuantidadeItens</td><td class="number">@Moeda(ncm.ValorItens)</td><td class="number">@Moeda(ncm.IcmsInformado)</td><td class="number">@Moeda(ncm.CreditoPermitido)</td><td class="number divergence-value">@Moeda(ncm.Divergencia)</td></tr>}</tbody></table></div>}
+            </section>
+        }
+        @if(exibidas.Count==0){<div class="empty">Nenhuma nota com divergência encontrada.</div>}else{
+        <div class="table-wrap"><table class="notes-table"><thead><tr><th></th><th>Nota</th><th>Situação</th><th>Fornecedor</th><th>Entrada</th><th>Chave</th><th class="number">Valor</th><th class="number">ICMS</th><th class="number">Crédito permitido</th><th class="number">Divergência</th></tr></thead><tbody>
+        @foreach(var nota in exibidas)
+        {
+            <tr class="note-row @ClasseNota(nota)"><td><button class="expand" @onclick="()=>AlternarItensAsync(nota)">@(abertas.Contains(nota.SpedC100Id)?"−":"+")</button></td><td><strong>@nota.NumeroDocumento</strong><small>Modelo @nota.CodigoModelo · Série @nota.Serie</small></td><td><span class="status @ClasseNota(nota)">@SituacaoNota(nota)</span></td><td><strong>@nota.NomeParticipante</strong><small>@nota.CodigoParticipante</small></td><td>@Data(nota.DataEntradaSaida??nota.DataDocumento)</td><td class="key" title="@nota.ChaveNfe">@(string.IsNullOrWhiteSpace(nota.ChaveNfe)?"-":nota.ChaveNfe)</td><td class="number">@Moeda(nota.ValorDocumento)</td><td class="number">@Moeda(nota.ValorIcmsCredito)</td><td class="number">@Moeda(nota.ValorIcmsCreditoPermitido)</td><td class="number divergence-value">@Moeda(nota.DiferencaIcmsCredito)</td></tr>
+            @if(abertas.Contains(nota.SpedC100Id)){<tr class="items"><td colspan="10">@if(!itens.TryGetValue(nota.SpedC100Id,out var lista)){<div class="empty">Carregando...</div>}else{<div class="table-wrap"><table><thead><tr><th>Item</th><th>Produto</th><th>NCM</th><th>CFOP</th><th>CST</th><th class="number">Valor</th><th class="number">Base</th><th class="number">Alíquota</th><th class="number">ICMS</th><th>Crítica</th><th class="number">Permitido</th><th class="number">Diferença</th></tr></thead><tbody>@foreach(var item in lista){<tr><td>@item.NumeroItem</td><td><strong>@item.Descricao</strong><small>@item.CodigoItem</small></td><td>@item.Ncm</td><td>@item.Cfop</td><td>@item.CstIcms</td><td class="number">@Moeda(item.ValorItem)</td><td class="number">@Moeda(item.ValorBaseIcms)</td><td class="number">@item.AliquotaIcms.ToString("N2")%</td><td class="number">@Moeda(item.ValorIcmsCredito)</td><td><span class="status @ClasseItem(item.Classificacao)">@TextoItem(item.Classificacao)</span><small title="@item.Justificativa">@item.RegraCodigo</small></td><td class="number">@MoedaOpcional(item.CreditoPermitido)</td><td class="number divergence-value">@MoedaOpcional(item.DiferencaCredito)</td></tr>}</tbody></table></div>}</td></tr>}
+        }
+        </tbody></table></div>}
+    }
+</section>
+
+@code{
+    private static readonly CultureInfo CulturaBrasil=new("pt-BR");private IReadOnlyList<Empresa> empresas=[];private IReadOnlyList<DashboardNotaEntradaFornecedorDto> notas=[];private IReadOnlyList<PreAnaliseDivergenciaNcmDto> divergenciasNcm=[];private readonly Dictionary<int,IReadOnlyList<DashboardNotaEntradaItemDto>> itens=[];private readonly HashSet<int> abertas=[];private PreAnaliseSpedImportacaoResultado? resultado;private int empresaId,mes=DateTime.Today.Month,ano=DateTime.Today.Year;private bool carregando,erro,apenasDivergencias,mostrarResumoNcm;private string? mensagem;
+    private IReadOnlyList<DashboardNotaEntradaFornecedorDto> NotasExibidas=>apenasDivergencias?notas.Where(TemDivergencia).ToArray():notas;
+    protected override async Task OnInitializedAsync()=>empresas=(await EmpresaRepository.GetAllAsync()).Where(x=>!string.IsNullOrWhiteSpace(x.CodigoEmpresaFiscalFortes)).OrderBy(x=>x.RazaoSocial).ToArray();
+    private async Task AnalisarAsync(){carregando=true;erro=false;mensagem=null;resultado=null;notas=[];divergenciasNcm=[];mostrarResumoNcm=false;abertas.Clear();itens.Clear();try{resultado=await FortesFiscalService.ImportarAsync(empresaId,ano,mes);notas=await Repository.GetNotasAsync(resultado.PreAnaliseSpedId);mensagem=$"{resultado.TotalNotas} nota(s) consultadas e analisadas pelas regras fiscais.";}catch(Exception ex){erro=true;mensagem=ex.Message;}finally{carregando=false;}}
+    private async Task AlternarItensAsync(DashboardNotaEntradaFornecedorDto nota){if(!abertas.Add(nota.SpedC100Id)){abertas.Remove(nota.SpedC100Id);return;}if(!itens.ContainsKey(nota.SpedC100Id))itens[nota.SpedC100Id]=await Repository.GetItensAsync(nota.SpedC100Id);}
+    private async Task AlternarResumoNcmAsync(){mostrarResumoNcm=!mostrarResumoNcm;if(mostrarResumoNcm&&resultado is not null&&divergenciasNcm.Count==0)divergenciasNcm=await Repository.GetDivergenciasPorNcmAsync(resultado.PreAnaliseSpedId);}
+    private static bool TemDivergencia(DashboardNotaEntradaFornecedorDto n)=>n.DiferencaIcmsCredito>0||n.ItensComDivergencia>0;private static string SituacaoNota(DashboardNotaEntradaFornecedorDto n)=>TemDivergencia(n)?"Com divergência":n.ItensParaRevisao>0?"Revisar":"Sem divergência";private static string ClasseNota(DashboardNotaEntradaFornecedorDto n)=>TemDivergencia(n)?"has-divergence":n.ItensParaRevisao>0?"needs-review":"no-divergence";private static string ClasseItem(string c)=>c is "SEM_CREDITO" or "SEM_CREDITO_ST"?"has-divergence":c=="REVISAR"?"needs-review":"no-divergence";private static string TextoItem(string c)=>c switch{"SEM_CREDITO_ST"=>"Sem crédito · ST","SEM_CREDITO"=>"Sem crédito","REVISAR"=>"Revisar","CREDITO_PERMITIDO"=>"Crédito permitido",_=>"Sem regra"};private static string Data(DateTime? d)=>d?.ToString("dd/MM/yyyy")??"-";private static string Moeda(decimal v)=>v.ToString("C2",CulturaBrasil);private static string MoedaOpcional(decimal? v)=>v?.ToString("C2",CulturaBrasil)??"-";
+}

@@ -9,6 +9,13 @@
 @inject ICnpjPublicoConsultaService CnpjPublicoConsultaService
 
 <PageTitle>Cadastro de empresas</PageTitle>
+<style>
+    .fortes-fields { padding: 1rem; border: 1px solid #93c5fd; border-radius: 9px; background: #eff6ff; }
+    .fortes-title { display: flex; flex-direction: column; gap: .2rem; margin-bottom: .8rem; color: #1e3a8a; }
+    .fortes-title span { font-size: .84rem; color: #64748b; }
+    .fortes-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+    @@media (max-width: 900px) { .fortes-grid { grid-template-columns: 1fr; } }
+</style>
 
 <section class="empresas-page">
     <header class="page-header">
@@ -91,9 +98,17 @@
         <div class="form-grid">
             <label class="full"><span>Razão social *</span><input maxlength="255" @bind="empresa.RazaoSocial" /></label>
             <label class="full"><span>Nome fantasia</span><input maxlength="255" @bind="empresa.NomeFantasia" /></label>
-            <div style="display:flex;flex-direction:column;gap:.4rem"><span style="font-weight:600;color:#334155">CNPJ *</span><div style="display:flex;gap:.5rem"><input style="min-width:0;flex:1" maxlength="18" inputmode="numeric" @bind="cnpjDigitado" placeholder="00.000.000/0000-00" /><button type="button" class="edit-button" style="white-space:nowrap" @onclick="SincronizarCnpjAsync" disabled="@(salvando || consultandoCnpj)">@(consultandoCnpj ? "Consultando..." : "Sincronizar CNPJ")</button></div></div>
+            <div class="cnpj-field full"><span>CNPJ *</span><div class="cnpj-row"><input maxlength="18" inputmode="numeric" @bind="cnpjDigitado" placeholder="00.000.000/0000-00" /><button type="button" class="edit-button" @onclick="SincronizarCnpjAsync" disabled="@(salvando || consultandoCnpj)">@(consultandoCnpj ? "Consultando..." : "Sincronizar CNPJ")</button></div></div>
             <label><span>Inscrição estadual</span><input maxlength="20" @bind="empresa.InscricaoEstadual" /></label>
             <label><span>Regime tributário *</span><select @bind="empresa.RegimeTributario"><option value="">Selecione</option><option value="SIMPLES">Simples Nacional</option><option value="LUCRO_REAL">Lucro Real</option><option value="LUCRO_PRESUMIDO">Lucro Presumido</option></select></label>
+            <section class="fortes-fields full">
+                <div class="fortes-title"><strong>Integração Fortes</strong><span>Informe os códigos utilizados em cada módulo.</span></div>
+                <div class="fortes-grid">
+                    <label><span>Código da empresa na Folha</span><input maxlength="20" @bind="empresa.CodigoEmpresaFolhaFortes" placeholder="Ex.: 0055" /></label>
+                    <label><span>Código da empresa no Fiscal</span><input maxlength="20" @bind="empresa.CodigoEmpresaFiscalFortes" /></label>
+                    <label><span>Código da empresa no Contábil</span><input maxlength="20" @bind="empresa.CodigoEmpresaContabilFortes" /></label>
+                </div>
+            </section>
             <label><span>UF</span><select @bind="empresa.Uf"><option value="">Selecione</option>@foreach (var uf in Ufs) { <option value="@uf">@uf</option> }</select></label>
             <label><span>Código IBGE do município</span><input maxlength="7" inputmode="numeric" @bind="empresa.CodigoMunicipio" placeholder="7 dígitos" /></label>
             <label><span>Data de abertura</span><input type="date" @bind="empresa.DataAbertura" @bind:format="yyyy-MM-dd" /></label>
@@ -148,7 +163,7 @@
     private bool FiltrosAtivos => !string.IsNullOrWhiteSpace(filtroTexto) || !string.IsNullOrEmpty(filtroRegime) || !string.IsNullOrEmpty(filtroUf);
     private void LimparFiltros() { filtroTexto=""; filtroRegime=""; filtroUf=""; }
     private void NovaEmpresa() { empresa = new(); cnpjDigitado = ""; certificadoSelecionado = ""; mensagem = null; erro = false; modalAberto=true; }
-    private void Editar(Empresa item) { empresa = new Empresa { Id=item.Id,Cnpj=item.Cnpj,RazaoSocial=item.RazaoSocial,NomeFantasia=item.NomeFantasia,InscricaoEstadual=item.InscricaoEstadual,Uf=item.Uf,CodigoMunicipio=item.CodigoMunicipio,DataAbertura=item.DataAbertura,CnaePrincipalCodigo=item.CnaePrincipalCodigo,CnaePrincipalDescricao=item.CnaePrincipalDescricao,CnaesSecundarios=item.CnaesSecundarios,NaturezaJuridica=item.NaturezaJuridica,Porte=item.Porte,SituacaoCadastral=item.SituacaoCadastral,DataSituacaoCadastral=item.DataSituacaoCadastral,MotivoSituacaoCadastral=item.MotivoSituacaoCadastral,SituacaoEspecial=item.SituacaoEspecial,DataSituacaoEspecial=item.DataSituacaoEspecial,TipoLogradouro=item.TipoLogradouro,Logradouro=item.Logradouro,Numero=item.Numero,Complemento=item.Complemento,Cep=item.Cep,Bairro=item.Bairro,Municipio=item.Municipio,Email=item.Email,Telefone=item.Telefone,EnteFederativoResponsavel=item.EnteFederativoResponsavel,SincronizadoEm=item.SincronizadoEm,RegimeTributario=item.RegimeTributario,Logomarca=item.Logomarca,LogomarcaContentType=item.LogomarcaContentType,LogomarcaNomeArquivo=item.LogomarcaNomeArquivo,CertificadoThumbprint=item.CertificadoThumbprint,CertificadoStoreLocation=item.CertificadoStoreLocation }; cnpjDigitado = FormatarCnpj(item.Cnpj); certificadoSelecionado = MontarIdentificadorCertificado(item); mensagem = null; erro = false; modalAberto=true; }
+    private void Editar(Empresa item) { empresa = new Empresa { Id=item.Id,Cnpj=item.Cnpj,RazaoSocial=item.RazaoSocial,NomeFantasia=item.NomeFantasia,InscricaoEstadual=item.InscricaoEstadual,Uf=item.Uf,CodigoMunicipio=item.CodigoMunicipio,DataAbertura=item.DataAbertura,CnaePrincipalCodigo=item.CnaePrincipalCodigo,CnaePrincipalDescricao=item.CnaePrincipalDescricao,CnaesSecundarios=item.CnaesSecundarios,NaturezaJuridica=item.NaturezaJuridica,Porte=item.Porte,SituacaoCadastral=item.SituacaoCadastral,DataSituacaoCadastral=item.DataSituacaoCadastral,MotivoSituacaoCadastral=item.MotivoSituacaoCadastral,SituacaoEspecial=item.SituacaoEspecial,DataSituacaoEspecial=item.DataSituacaoEspecial,TipoLogradouro=item.TipoLogradouro,Logradouro=item.Logradouro,Numero=item.Numero,Complemento=item.Complemento,Cep=item.Cep,Bairro=item.Bairro,Municipio=item.Municipio,Email=item.Email,Telefone=item.Telefone,EnteFederativoResponsavel=item.EnteFederativoResponsavel,SincronizadoEm=item.SincronizadoEm,RegimeTributario=item.RegimeTributario,Logomarca=item.Logomarca,LogomarcaContentType=item.LogomarcaContentType,LogomarcaNomeArquivo=item.LogomarcaNomeArquivo,CertificadoThumbprint=item.CertificadoThumbprint,CertificadoStoreLocation=item.CertificadoStoreLocation,CodigoEmpresaFolhaFortes=item.CodigoEmpresaFolhaFortes,CodigoEmpresaFiscalFortes=item.CodigoEmpresaFiscalFortes,CodigoEmpresaContabilFortes=item.CodigoEmpresaContabilFortes }; cnpjDigitado = FormatarCnpj(item.Cnpj); certificadoSelecionado = MontarIdentificadorCertificado(item); mensagem = null; erro = false; modalAberto=true; }
     private void FecharModal() { if (salvando) return; modalAberto=false; erro=false; mensagem=null; }
     private async Task CarregarLogomarcaAsync(InputFileChangeEventArgs e) { erro=false; mensagem=null; var arquivo=e.File; if (!new[] { "image/png", "image/jpeg", "image/webp", "image/gif" }.Contains(arquivo.ContentType)) { Falha("Selecione uma imagem PNG, JPG, WebP ou GIF."); return; } try { await using var stream=arquivo.OpenReadStream(TamanhoMaximoLogomarca); using var memoria=new MemoryStream(); await stream.CopyToAsync(memoria); empresa.Logomarca=memoria.ToArray(); empresa.LogomarcaContentType=arquivo.ContentType; empresa.LogomarcaNomeArquivo=arquivo.Name; } catch (IOException) { Falha("A logomarca deve ter no máximo 2 MB."); } }
     private void RemoverLogomarca() { empresa.Logomarca=null; empresa.LogomarcaContentType=null; empresa.LogomarcaNomeArquivo=null; }

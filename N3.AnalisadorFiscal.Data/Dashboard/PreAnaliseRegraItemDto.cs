@@ -8,6 +8,7 @@ public sealed class PreAnaliseRegraItemDto
     public string? UfDestino { get; set; }
     public string? CnpjFornecedor { get; set; }
     public string? NcmPrefixo { get; set; }
+    public string? CestPrefixo { get; set; }
     public string? NcmExcecoes { get; set; }
     public string? TermosDescricao { get; set; }
     public string? CstsAplicaveis { get; set; }

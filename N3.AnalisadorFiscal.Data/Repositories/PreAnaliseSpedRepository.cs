@@ -11,6 +11,7 @@ public interface IPreAnaliseSpedRepository
     Task<IReadOnlyList<PreAnaliseSpedResumoDto>> GetPreAnalisesAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyList<DashboardNotaEntradaFornecedorDto>> GetNotasAsync(int preAnaliseSpedId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<DashboardNotaEntradaItemDto>> GetItensAsync(int preAnaliseSpedNotaId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<PreAnaliseDivergenciaNcmDto>> GetDivergenciasPorNcmAsync(int preAnaliseSpedId, CancellationToken cancellationToken = default);
     Task<bool> ExcluirAsync(int preAnaliseSpedId, CancellationToken cancellationToken = default);
 }
 
@@ -120,7 +121,7 @@ public sealed class PreAnaliseSpedRepository : IPreAnaliseSpedRepository
             SELECT ID_PRE_ANALISE_REGRA_ITEM AS PreAnaliseRegraItemId,
                    CODIGO AS Codigo, NOME AS Nome, UF_DESTINO AS UfDestino,
                    CNPJ_FORNECEDOR AS CnpjFornecedor,
-                   NCM_PREFIXO AS NcmPrefixo, NCM_EXCECOES AS NcmExcecoes,
+                   NCM_PREFIXO AS NcmPrefixo, CEST_PREFIXO AS CestPrefixo, NCM_EXCECOES AS NcmExcecoes,
                    TERMOS_DESCRICAO AS TermosDescricao, CSTS_APLICAVEIS AS CstsAplicaveis,
                    CFOPS_APLICAVEIS AS CfopsAplicaveis, RESULTADO AS Resultado,
                    PERCENTUAL_CREDITO AS PercentualCredito, PRIORIDADE AS Prioridade,
@@ -141,7 +142,7 @@ public sealed class PreAnaliseSpedRepository : IPreAnaliseSpedRepository
             SELECT ID_PRE_ANALISE_REGRA_ITEM AS PreAnaliseRegraItemId,
                    CODIGO AS Codigo, NOME AS Nome, UF_DESTINO AS UfDestino,
                    CNPJ_FORNECEDOR AS CnpjFornecedor,
-                   NCM_PREFIXO AS NcmPrefixo, NCM_EXCECOES AS NcmExcecoes,
+                   NCM_PREFIXO AS NcmPrefixo, CEST_PREFIXO AS CestPrefixo, NCM_EXCECOES AS NcmExcecoes,
                    TERMOS_DESCRICAO AS TermosDescricao, CSTS_APLICAVEIS AS CstsAplicaveis,
                    CFOPS_APLICAVEIS AS CfopsAplicaveis, RESULTADO AS Resultado,
                    PERCENTUAL_CREDITO AS PercentualCredito, PRIORIDADE AS Prioridade,
@@ -246,6 +247,29 @@ public sealed class PreAnaliseSpedRepository : IPreAnaliseSpedRepository
         await using var connection = _connectionFactory.CreateConnection();
         return (await connection.QueryAsync<DashboardNotaEntradaItemDto>(new CommandDefinition(
             sql, new { PreAnaliseSpedNotaId = preAnaliseSpedNotaId }, cancellationToken: cancellationToken))).AsList();
+    }
+
+    public async Task<IReadOnlyList<PreAnaliseDivergenciaNcmDto>> GetDivergenciasPorNcmAsync(
+        int preAnaliseSpedId, CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT COALESCE(NULLIF(LTRIM(RTRIM(I.NCM)),''),'Sem NCM') AS Ncm,
+                   COUNT(*) AS QuantidadeItens,
+                   COUNT(DISTINCT N.ID_PRE_ANALISE_SPED_NOTA) AS QuantidadeNotas,
+                   SUM(I.VL_ITEM) AS ValorItens,
+                   SUM(I.VL_BC_ICMS) AS BaseIcms,
+                   SUM(I.VL_ICMS) AS IcmsInformado,
+                   SUM(COALESCE(I.CREDITO_PERMITIDO,0)) AS CreditoPermitido,
+                   SUM(COALESCE(I.DIFERENCA_CREDITO,0)) AS Divergencia
+            FROM PRE_ANALISE_SPED_ITEM I
+            INNER JOIN PRE_ANALISE_SPED_NOTA N ON N.ID_PRE_ANALISE_SPED_NOTA=I.ID_PRE_ANALISE_SPED_NOTA
+            WHERE N.ID_PRE_ANALISE_SPED=@PreAnaliseSpedId AND COALESCE(I.DIFERENCA_CREDITO,0)>0
+            GROUP BY COALESCE(NULLIF(LTRIM(RTRIM(I.NCM)),''),'Sem NCM')
+            ORDER BY SUM(COALESCE(I.DIFERENCA_CREDITO,0)) DESC;
+            """;
+        await using var connection = _connectionFactory.CreateConnection();
+        return (await connection.QueryAsync<PreAnaliseDivergenciaNcmDto>(new CommandDefinition(
+            sql, new { PreAnaliseSpedId = preAnaliseSpedId }, cancellationToken: cancellationToken))).AsList();
     }
 
     public async Task<bool> ExcluirAsync(int preAnaliseSpedId, CancellationToken cancellationToken = default)

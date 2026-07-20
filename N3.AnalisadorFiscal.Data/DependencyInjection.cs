@@ -23,6 +23,7 @@ public static class DependencyInjection
         services.AddScoped<IDashboardPisCofinsRepository, DashboardPisCofinsRepository>();
         services.AddScoped<IPreAnaliseSpedRepository, PreAnaliseSpedRepository>();
         services.AddScoped<INfseRepository, NfseRepository>();
+        services.AddScoped<IFolhaPagamentoRepository, FolhaPagamentoRepository>();
 
         return services;
     }

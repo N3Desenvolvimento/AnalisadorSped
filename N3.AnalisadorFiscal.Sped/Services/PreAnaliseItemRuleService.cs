@@ -79,7 +79,7 @@ public sealed class PreAnaliseItemRuleService : IPreAnaliseItemRuleService
             ? item.Item.ValorIcms - item.CreditoPermitido.Value
             : null;
         item.Justificativa = MontarJustificativa(regra,
-            "NCM e descrição correspondem à regra fiscal.");
+            "O NCM está relacionado como produto sujeito à substituição tributária sem direito a crédito no RN.");
     }
 
     private static void AplicarRegraParcial(

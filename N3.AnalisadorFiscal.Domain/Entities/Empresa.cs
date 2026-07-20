@@ -37,5 +37,8 @@ public sealed class Empresa
     public string? LogomarcaNomeArquivo { get; set; }
     public string? CertificadoThumbprint { get; set; }
     public string? CertificadoStoreLocation { get; set; }
+    public string? CodigoEmpresaFolhaFortes { get; set; }
+    public string? CodigoEmpresaFiscalFortes { get; set; }
+    public string? CodigoEmpresaContabilFortes { get; set; }
     public DateTime CriadoEm { get; set; } = DateTime.UtcNow;
 }

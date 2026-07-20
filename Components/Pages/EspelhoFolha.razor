@@ -1,0 +1,42 @@
+@page "/espelho-folha"
+@rendermode InteractiveServer
+@using System.Globalization
+@using N3.AnalisadorFiscal.Data.Dashboard
+@using N3.AnalisadorFiscal.Data.Repositories
+@using N3.AnalisadorFiscal.Domain.Entities
+@inject IEmpresaRepository EmpresaRepository
+@inject IFolhaPagamentoRepository FolhaRepository
+
+<PageTitle>Espelho da folha</PageTitle>
+
+<section class="mirror-page">
+    <header><h1>Espelho da folha</h1><p>Resumo e detalhamento dos eventos importados do Fortes.</p></header>
+    <section class="filters">
+        <label class="company"><span>Empresa</span><select @bind="empresaId"><option value="0">Selecione</option>@foreach(var empresa in empresas){<option value="@empresa.Id">@empresa.RazaoSocial</option>}</select></label>
+        <label><span>Mês</span><select @bind="mes">@for(var i=1;i<=12;i++){<option value="@i">@NomeMes(i)</option>}</select></label>
+        <label><span>Ano</span><input type="number" min="2000" max="2100" @bind="ano" /></label>
+        <button type="button" @onclick="CarregarAsync" disabled="@(carregando || empresaId==0)">@(carregando?"Carregando...":"Ver espelho")</button>
+    </section>
+    @if(!string.IsNullOrWhiteSpace(mensagem)){<div class="message">@mensagem</div>}
+    @if(espelho is not null)
+    {
+        <section class="sheet-header"><div><h2>@espelho.RazaoSocial</h2><span>Competência @espelho.Mes.ToString("00")/@espelho.Ano · @espelho.Trabalhadores.Count trabalhador(es)</span></div><small>Importado em @espelho.ImportadoEm.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</small></section>
+        <section class="summary"><article><span>Proventos</span><strong>@Moeda(espelho.TotalProventos)</strong></article><article><span>Descontos</span><strong>@Moeda(espelho.TotalDescontos)</strong></article><article class="net"><span>Líquido da folha</span><strong>@Moeda(espelho.TotalLiquido)</strong></article></section>
+        <section class="employees">
+            @foreach(var trabalhador in espelho.Trabalhadores)
+            {
+                <details>
+                    <summary><div><strong>@trabalhador.Nome</strong><span>Código Fortes: @trabalhador.CodigoFortes</span></div><div class="employee-totals"><span>Proventos <b>@Moeda(trabalhador.TotalProventos)</b></span><span>Descontos <b>@Moeda(trabalhador.TotalDescontos)</b></span><span class="liquid">Líquido <b>@Moeda(trabalhador.Liquido)</b></span></div></summary>
+                    <div class="table-wrap"><table><thead><tr><th>Código</th><th>Evento</th><th>Tipo</th><th class="number">Referência</th><th class="number">Valor</th></tr></thead><tbody>@foreach(var evento in trabalhador.Eventos){<tr><td>@evento.CodigoFortes</td><td>@evento.Nome</td><td><span class="type @ClasseTipo(evento.TipoEvento)">@NomeTipo(evento.TipoEvento)</span></td><td class="number">@evento.Referencia.ToString("N2")</td><td class="number">@Moeda(evento.Valor)</td></tr>}</tbody><tfoot><tr><td colspan="4">Líquido</td><td class="number">@Moeda(trabalhador.Liquido)</td></tr></tfoot></table></div>
+                </details>
+            }
+        </section>
+    }
+</section>
+
+@code{
+    private IReadOnlyList<Empresa> empresas=[];private FolhaEspelhoDto? espelho;private int empresaId,mes=DateTime.Today.Month,ano=DateTime.Today.Year;private bool carregando;private string? mensagem;
+    protected override async Task OnInitializedAsync()=>empresas=(await EmpresaRepository.GetAllAsync()).OrderBy(x=>x.RazaoSocial).ToArray();
+    private async Task CarregarAsync(){carregando=true;mensagem=null;try{espelho=await FolhaRepository.GetEspelhoAsync(empresaId,ano,mes);if(espelho is null)mensagem="Nenhuma folha importada para a competência selecionada.";}catch(Exception ex){espelho=null;mensagem=$"Não foi possível carregar o espelho: {ex.Message}";}finally{carregando=false;}}
+    private static string Moeda(decimal v)=>v.ToString("C2",CultureInfo.GetCultureInfo("pt-BR"));private static string NomeMes(int m)=>CultureInfo.GetCultureInfo("pt-BR").DateTimeFormat.GetMonthName(m);private static string NomeTipo(int t)=>t switch{1=>"Provento",-1=>"Desconto",_=>"Informativo"};private static string ClasseTipo(int t)=>t switch{1=>"earning",-1=>"deduction",_=>"info"};
+}

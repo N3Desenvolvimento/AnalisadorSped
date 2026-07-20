@@ -1,0 +1,128 @@
+@page "/resultado-empresas"
+@rendermode InteractiveServer
+@using System.Globalization
+@using N3.AnalisadorFiscal.Data.Dashboard
+@using N3.AnalisadorFiscal.Data.Repositories
+@inject IDashboardFiscalRepository DashboardFiscalRepository
+@inject IDashboardPisCofinsRepository DashboardPisCofinsRepository
+@inject INfseRepository NfseRepository
+@inject IFolhaPagamentoRepository FolhaPagamentoRepository
+
+<PageTitle>Resultado da empresa</PageTitle>
+
+<section class="result-page">
+    <header class="page-header"><div><h1>Resultado da empresa</h1><p>Visão anual das receitas e dos débitos fiscais.</p></div></header>
+
+    <section class="filters">
+        <label class="company-filter"><span>Empresa</span><select @bind="empresaIdSelecionada"><option value="0">Selecione uma empresa</option>@foreach (var empresa in empresas) { <option value="@empresa.Id">@empresa.RazaoSocial - @FormatarCnpj(empresa.Cnpj)</option> }</select></label>
+        <label><span>Ano</span><input type="number" min="2000" max="2100" @bind="anoSelecionado" /></label>
+        <button type="button" class="primary-button" @onclick="CarregarAsync" disabled="@(carregando || empresaIdSelecionada == 0)">@(carregando ? "Carregando..." : "Atualizar painel")</button>
+    </section>
+
+    @if (!string.IsNullOrWhiteSpace(mensagem)) { <div class="message error">@mensagem</div> }
+
+    @if (linhas.Count > 0)
+    {
+        <section class="summary-cards">
+            <article><span>Receita anual de vendas</span><strong>@Moeda(ObterLinha("VENDAS").Total)</strong></article>
+            <article><span>Receita anual de serviços</span><strong>@Moeda(ObterLinha("SERVICOS").Total)</strong></article>
+            <article class="revenue"><span>Receita total anual</span><strong>@Moeda(ObterLinha("RECEITA_TOTAL").Total)</strong></article>
+            <article><span>Impostos, folha e encargos</span><strong>@Moeda(ObterLinha("TOTAL_DEBITOS").Total)</strong></article>
+            <article class="balance"><span>Saldo anual após débitos</span><strong>@Moeda(ObterLinha("SALDO").Total)</strong></article>
+        </section>
+
+        <section class="result-list">
+            <header><div><h2>@EmpresaSelecionada?.RazaoSocial</h2><span>Valores mensais de @anoSelecionado</span></div></header>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Item</th>@for (var mes = 1; mes <= 12; mes++) { <th class="number">@MesAbreviado(mes)</th> }<th class="number total-column">Total anual</th></tr></thead>
+                    <tbody>
+                        @foreach (var linha in linhas)
+                        {
+                            <tr class="@linha.Classe"><td><strong>@linha.Descricao</strong></td>@foreach (var valor in linha.Valores) { <td class="number">@Moeda(valor)</td> }<td class="number total-column"><strong>@Moeda(linha.Total)</strong></td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <p class="calculation-note">Saldo = vendas + serviços − ICMS − ISS − PIS − Cofins − folha bruta − INSS patronal − FGTS.</p>
+        </section>
+    }
+    else if (!carregando && carregamentoRealizado && string.IsNullOrWhiteSpace(mensagem)) { <div class="empty-state">Não foram encontrados dados para a empresa e o ano selecionados.</div> }
+</section>
+
+@code {
+    private IReadOnlyList<EmpresaOpcaoDto> empresas = [];
+    private IReadOnlyList<LinhaResultado> linhas = [];
+    private int empresaIdSelecionada;
+    private int anoSelecionado = DateTime.Today.Year;
+    private bool carregando, carregamentoRealizado;
+    private string? mensagem;
+    private EmpresaOpcaoDto? EmpresaSelecionada => empresas.FirstOrDefault(x => x.Id == empresaIdSelecionada);
+
+    protected override async Task OnInitializedAsync() => empresas = await DashboardFiscalRepository.GetEmpresasAsync();
+
+    private async Task CarregarAsync()
+    {
+        if (EmpresaSelecionada is not { } empresa) return;
+        carregando = true; mensagem = null;
+        try
+        {
+            var fiscal = await DashboardFiscalRepository.GetDashboardAnualAsync(empresa.Id, anoSelecionado);
+            var contribuicoes = await DashboardPisCofinsRepository.GetMesesImportadosAsync(empresa.Id, anoSelecionado);
+            var folhaImportada = await FolhaPagamentoRepository.GetResumoAnualAsync(empresa.Id, anoSelecionado);
+            var vendas = new decimal[12];
+            var icms = Meses(m => fiscal.Meses.Where(x => x.Mes == m).Sum(x => x.IcmsDebitado));
+            var pis = Meses(m => contribuicoes.Where(x => x.Mes == m).Sum(x => x.DebitoPis));
+            var cofins = Meses(m => contribuicoes.Where(x => x.Mes == m).Sum(x => x.DebitoCofins));
+            var folha = Meses(m => folhaImportada.Where(x => x.Mes == m).Sum(x => x.ValorFolha));
+            var inssPatronal = Meses(m => folhaImportada.Where(x => x.Mes == m).Sum(x => x.ValorInssPatronal));
+            var fgts = Meses(m => folhaImportada.Where(x => x.Mes == m).Sum(x => x.ValorFgts));
+            var servicos = new decimal[12]; var iss = new decimal[12];
+            for (var mes = 1; mes <= 12; mes++)
+            {
+                var dashboardMes = await DashboardFiscalRepository.GetDashboardAsync(empresa.Id, new DateTime(anoSelecionado, mes, 1));
+                vendas[mes - 1] = dashboardMes.ResumoPorCfopCst
+                    .Where(x => x.IndicadorOperacao == "1" && !CfopTransferencia(x.Cfop))
+                    .Sum(x => x.ValorOperacao);
+                var apuracao = await NfseRepository.GetApuracaoAsync(empresa.Id, empresa.Cnpj, anoSelecionado, mes);
+                servicos[mes - 1] = apuracao.ValorServicosPrestados;
+                iss[mes - 1] = apuracao.IssDevido;
+            }
+            var receita = Somar(vendas, servicos);
+            var debitos = Somar(icms, iss, pis, cofins, folha, inssPatronal, fgts);
+            var saldo = receita.Zip(debitos, (r, d) => r - d).ToArray();
+            linhas =
+            [
+                new("VENDAS", "Receita de vendas", vendas, "revenue-row"),
+                new("SERVICOS", "Receita de serviços", servicos, "revenue-row"),
+                new("RECEITA_TOTAL", "Receita total", receita, "subtotal-row"),
+                new("ICMS", "ICMS débito", icms, "tax-row"),
+                new("ISS", "ISS devido", iss, "tax-row"),
+                new("PIS", "PIS débito", pis, "tax-row"),
+                new("COFINS", "Cofins débito", cofins, "tax-row"),
+                new("FOLHA", "Folha bruta", folha, "payroll-row"),
+                new("INSS_PATRONAL", "INSS patronal", inssPatronal, "payroll-row"),
+                new("FGTS", "FGTS do mês", fgts, "payroll-row"),
+                new("TOTAL_DEBITOS", "Total de impostos, folha e encargos", debitos, "subtotal-row tax-total"),
+                new("SALDO", "Saldo após débitos", saldo, "balance-row")
+            ];
+            carregamentoRealizado = true;
+        }
+        catch (Exception ex) { linhas = []; mensagem = $"Não foi possível carregar o painel: {ex.Message}"; }
+        finally { carregando = false; }
+    }
+
+    private static decimal[] Meses(Func<int, decimal> seletor) => Enumerable.Range(1, 12).Select(seletor).ToArray();
+    private static decimal[] Somar(params decimal[][] grupos) => Enumerable.Range(0, 12).Select(i => grupos.Sum(g => g[i])).ToArray();
+    private static bool CfopTransferencia(string cfop)
+    {
+        cfop = cfop.Trim();
+        return cfop is "1151" or "1152" or "1408" or "2151" or "2152" or "2408" or "2409"
+            or "5151" or "5152" or "5408" or "5409" or "6151" or "6152" or "6408" or "6409";
+    }
+    private LinhaResultado ObterLinha(string codigo) => linhas.First(x => x.Codigo == codigo);
+    private static string Moeda(decimal valor) => valor.ToString("C2", CultureInfo.GetCultureInfo("pt-BR"));
+    private static string MesAbreviado(int mes) => CultureInfo.GetCultureInfo("pt-BR").DateTimeFormat.GetAbbreviatedMonthName(mes).TrimEnd('.');
+    private static string FormatarCnpj(string valor) { var d = new string(valor.Where(char.IsDigit).ToArray()); return d.Length == 14 ? $"{d[..2]}.{d[2..5]}.{d[5..8]}/{d[8..12]}-{d[12..14]}" : valor; }
+    private sealed record LinhaResultado(string Codigo, string Descricao, decimal[] Valores, string Classe) { public decimal Total => Valores.Sum(); }
+}

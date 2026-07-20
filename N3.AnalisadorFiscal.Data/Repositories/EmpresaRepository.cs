@@ -26,7 +26,8 @@ public sealed class EmpresaRepository : RepositoryBase, IEmpresaRepository
                 TIPO_LOGRADOURO, LOGRADOURO, NUMERO, COMPLEMENTO, CEP, BAIRRO, MUNICIPIO,
                 EMAIL, TELEFONE, ENTE_FEDERATIVO_RESPONSAVEL, SINCRONIZADO_EM,
                 REGIME_TRIBUTARIO, LOGOMARCA, LOGOMARCA_CONTENT_TYPE, LOGOMARCA_NOME_ARQUIVO,
-                CERTIFICADO_THUMBPRINT, CERTIFICADO_STORE_LOCATION, ATIVO)
+                CERTIFICADO_THUMBPRINT, CERTIFICADO_STORE_LOCATION, CODIGO_EMPRESA_FOLHA_FORTES,
+                CODIGO_EMPRESA_FISCAL_FORTES, CODIGO_EMPRESA_CONTABIL_FORTES, ATIVO)
             OUTPUT INSERTED.ID_EMPRESA
             VALUES (@Cnpj, @RazaoSocial, @NomeFantasia, @Uf, @InscricaoEstadual, @CodigoMunicipio,
                 @DataAbertura, @CnaePrincipalCodigo, @CnaePrincipalDescricao, @CnaesSecundarios,
@@ -35,7 +36,8 @@ public sealed class EmpresaRepository : RepositoryBase, IEmpresaRepository
                 @TipoLogradouro, @Logradouro, @Numero, @Complemento, @Cep, @Bairro, @Municipio,
                 @Email, @Telefone, @EnteFederativoResponsavel, @SincronizadoEm,
                 @RegimeTributario, @Logomarca, @LogomarcaContentType, @LogomarcaNomeArquivo,
-                @CertificadoThumbprint, @CertificadoStoreLocation, 1);
+                @CertificadoThumbprint, @CertificadoStoreLocation, @CodigoEmpresaFolhaFortes,
+                @CodigoEmpresaFiscalFortes, @CodigoEmpresaContabilFortes, 1);
             """;
 
         return await InsertAsync(sql, empresa, cancellationToken);
@@ -68,6 +70,9 @@ public sealed class EmpresaRepository : RepositoryBase, IEmpresaRepository
                 ,LOGOMARCA_NOME_ARQUIVO AS LogomarcaNomeArquivo
                 ,CERTIFICADO_THUMBPRINT AS CertificadoThumbprint
                 ,CERTIFICADO_STORE_LOCATION AS CertificadoStoreLocation
+                ,CODIGO_EMPRESA_FOLHA_FORTES AS CodigoEmpresaFolhaFortes
+                ,CODIGO_EMPRESA_FISCAL_FORTES AS CodigoEmpresaFiscalFortes
+                ,CODIGO_EMPRESA_CONTABIL_FORTES AS CodigoEmpresaContabilFortes
             FROM EMPRESA
             WHERE CNPJ = @Cnpj;
             """;
@@ -96,6 +101,9 @@ public sealed class EmpresaRepository : RepositoryBase, IEmpresaRepository
                 LOGOMARCA_NOME_ARQUIVO AS LogomarcaNomeArquivo,
                 CERTIFICADO_THUMBPRINT AS CertificadoThumbprint,
                 CERTIFICADO_STORE_LOCATION AS CertificadoStoreLocation
+                ,CODIGO_EMPRESA_FOLHA_FORTES AS CodigoEmpresaFolhaFortes
+                ,CODIGO_EMPRESA_FISCAL_FORTES AS CodigoEmpresaFiscalFortes
+                ,CODIGO_EMPRESA_CONTABIL_FORTES AS CodigoEmpresaContabilFortes
             FROM EMPRESA WHERE ID_EMPRESA=@Id;
             """;
         return await QuerySingleOrDefaultAsync<Empresa>(sql, new { Id = id }, cancellationToken);
@@ -122,6 +130,9 @@ public sealed class EmpresaRepository : RepositoryBase, IEmpresaRepository
                 LOGOMARCA_NOME_ARQUIVO AS LogomarcaNomeArquivo,
                 CERTIFICADO_THUMBPRINT AS CertificadoThumbprint,
                 CERTIFICADO_STORE_LOCATION AS CertificadoStoreLocation
+                ,CODIGO_EMPRESA_FOLHA_FORTES AS CodigoEmpresaFolhaFortes
+                ,CODIGO_EMPRESA_FISCAL_FORTES AS CodigoEmpresaFiscalFortes
+                ,CODIGO_EMPRESA_CONTABIL_FORTES AS CodigoEmpresaContabilFortes
             FROM EMPRESA WHERE COALESCE(ATIVO, 1)=1 ORDER BY RAZAO_SOCIAL;
             """;
         await using var connection = ConnectionFactory.CreateConnection();
@@ -149,7 +160,10 @@ public sealed class EmpresaRepository : RepositoryBase, IEmpresaRepository
                 LOGOMARCA_CONTENT_TYPE=@LogomarcaContentType,
                 LOGOMARCA_NOME_ARQUIVO=@LogomarcaNomeArquivo,
                 CERTIFICADO_THUMBPRINT=@CertificadoThumbprint,
-                CERTIFICADO_STORE_LOCATION=@CertificadoStoreLocation
+                CERTIFICADO_STORE_LOCATION=@CertificadoStoreLocation,
+                CODIGO_EMPRESA_FOLHA_FORTES=@CodigoEmpresaFolhaFortes,
+                CODIGO_EMPRESA_FISCAL_FORTES=@CodigoEmpresaFiscalFortes,
+                CODIGO_EMPRESA_CONTABIL_FORTES=@CodigoEmpresaContabilFortes
             WHERE ID_EMPRESA=@Id;
             """;
         await ExecuteAsync(sql, empresa, cancellationToken);
@@ -205,6 +219,9 @@ public sealed class EmpresaRepository : RepositoryBase, IEmpresaRepository
             IF COL_LENGTH('dbo.EMPRESA', 'TELEFONE') IS NULL ALTER TABLE dbo.EMPRESA ADD TELEFONE VARCHAR(100) NULL;
             IF COL_LENGTH('dbo.EMPRESA', 'ENTE_FEDERATIVO_RESPONSAVEL') IS NULL ALTER TABLE dbo.EMPRESA ADD ENTE_FEDERATIVO_RESPONSAVEL VARCHAR(255) NULL;
             IF COL_LENGTH('dbo.EMPRESA', 'SINCRONIZADO_EM') IS NULL ALTER TABLE dbo.EMPRESA ADD SINCRONIZADO_EM DATETIME2 NULL;
+            IF COL_LENGTH('dbo.EMPRESA', 'CODIGO_EMPRESA_FOLHA_FORTES') IS NULL ALTER TABLE dbo.EMPRESA ADD CODIGO_EMPRESA_FOLHA_FORTES VARCHAR(20) NULL;
+            IF COL_LENGTH('dbo.EMPRESA', 'CODIGO_EMPRESA_FISCAL_FORTES') IS NULL ALTER TABLE dbo.EMPRESA ADD CODIGO_EMPRESA_FISCAL_FORTES VARCHAR(20) NULL;
+            IF COL_LENGTH('dbo.EMPRESA', 'CODIGO_EMPRESA_CONTABIL_FORTES') IS NULL ALTER TABLE dbo.EMPRESA ADD CODIGO_EMPRESA_CONTABIL_FORTES VARCHAR(20) NULL;
             """;
         await ExecuteAsync(sql, null, cancellationToken);
     }

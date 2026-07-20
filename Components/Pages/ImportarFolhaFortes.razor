@@ -1,0 +1,33 @@
+@page "/importar-folha-fortes"
+@rendermode InteractiveServer
+@using System.Globalization
+@using N3.AnalisadorFiscal.Domain.Entities
+@using N3.AnalisadorFiscal.Data.Repositories
+@using N3.AnalisadorFiscal.Web.Services
+@inject IEmpresaRepository EmpresaRepository
+@inject IFolhaFortesImportService ImportService
+
+<PageTitle>Importar folha Fortes</PageTitle>
+
+<section class="payroll-page">
+    <header><h1>Importar folha do Fortes</h1><p>Copia para o SQL Server uma folha mensal encerrada.</p></header>
+    <section class="import-panel">
+        <label class="company"><span>Empresa</span><select @bind="empresaId"><option value="0">Selecione</option>@foreach (var empresa in empresas) { <option value="@empresa.Id">@empresa.RazaoSocial — código Fortes @(empresa.CodigoEmpresaFolhaFortes ?? "não informado")</option> }</select></label>
+        <label><span>Mês</span><select @bind="mes">@for (var i=1;i<=12;i++) { <option value="@i">@CultureInfo.GetCultureInfo("pt-BR").DateTimeFormat.GetMonthName(i)</option> }</select></label>
+        <label><span>Ano</span><input type="number" min="2000" max="2100" @bind="ano" /></label>
+        <button type="button" @onclick="ImportarAsync" disabled="@(importando || empresaId == 0)">@(importando ? "Importando..." : "Importar folha encerrada")</button>
+    </section>
+    <div class="notice"><strong>Importação segura</strong><span>A rotina aceita somente folha mensal encerrada. Uma nova importação da mesma competência substitui a anterior.</span></div>
+    @if (!string.IsNullOrWhiteSpace(mensagem)) { <div class="message @(erro ? "error" : "success")">@mensagem</div> }
+    @if (resultado is not null)
+    {
+        <section class="result"><h2>Importação concluída</h2><div class="cards"><article><span>Trabalhadores</span><strong>@resultado.Trabalhadores</strong></article><article><span>Eventos</span><strong>@resultado.Eventos</strong></article><article><span>Lançamentos</span><strong>@resultado.Lancamentos</strong></article><article><span>Proventos</span><strong>@Moeda(resultado.Proventos)</strong></article><article><span>Descontos</span><strong>@Moeda(resultado.Descontos)</strong></article><article class="net"><span>Líquido</span><strong>@Moeda(resultado.Liquido)</strong></article></div></section>
+    }
+</section>
+
+@code {
+    private IReadOnlyList<Empresa> empresas=[]; private int empresaId,mes=DateTime.Today.Month,ano=DateTime.Today.Year; private bool importando,erro; private string? mensagem; private FolhaFortesImportResult? resultado;
+    protected override async Task OnInitializedAsync()=>empresas=(await EmpresaRepository.GetAllAsync()).OrderBy(x=>x.RazaoSocial).ToArray();
+    private async Task ImportarAsync(){importando=true;erro=false;mensagem=null;resultado=null;try{resultado=await ImportService.ImportarAsync(empresaId,ano,mes);mensagem=$"Folha {mes:00}/{ano} copiada para o SQL Server com sucesso.";}catch(Exception ex){erro=true;mensagem=ex.Message;}finally{importando=false;}}
+    private static string Moeda(decimal valor)=>valor.ToString("C2",CultureInfo.GetCultureInfo("pt-BR"));
+}

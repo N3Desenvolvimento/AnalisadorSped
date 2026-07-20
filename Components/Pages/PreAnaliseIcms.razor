@@ -83,11 +83,13 @@
             <div><span>Itens</span><strong>@resultado.TotalItens</strong></div>
         </section>
         <div class="analysis-actions">
+            <label class="divergence-filter"><input type="checkbox" @bind="apenasDivergencias" /><span>Apenas notas com divergências</span></label>
+            <button type="button" class="ncm-summary-button" @onclick="AlternarResumoNcmAsync" disabled="@(Ocupado || resultado is null)">@(mostrarResumoNcm ? "Ocultar resumo por NCM" : "Resumo de divergências por NCM")</button>
             @if (notas.Count > 0)
             {
                 <a class="excel-button" href="@UrlExcel">Baixar notas em Excel</a>
             }
-            <button type="button" class="delete-button" @onclick="() => ExcluirAsync(resultado.PreAnaliseSpedId)" disabled="@Ocupado">
+            <button type="button" class="delete-button" @onclick="() => ExcluirAsync(resultado!.PreAnaliseSpedId)" disabled="@Ocupado">
                 @(excluindo ? "Excluindo..." : "Excluir pré-análise")
             </button>
         </div>
@@ -95,22 +97,44 @@
 
     @if (notas.Count > 0)
     {
+        var notasExibidas = NotasExibidas;
         <section class="summary-grid">
-            <div><span>Notas</span><strong>@notas.Count</strong></div>
-            <div><span>Valor total</span><strong>@Moeda(notas.Sum(x => x.ValorDocumento))</strong></div>
-            <div><span>Base ICMS</span><strong>@Moeda(notas.Sum(x => x.ValorBaseIcms))</strong></div>
-            <div><span>ICMS informado</span><strong>@Moeda(notas.Sum(x => x.ValorIcmsCredito))</strong></div>
-            <div class="allowed-summary"><span>Crédito permitido</span><strong>@Moeda(notas.Sum(x => x.ValorIcmsCreditoPermitido))</strong></div>
-            <div class="difference-summary"><span>Divergência</span><strong>@Moeda(notas.Sum(x => x.DiferencaIcmsCredito))</strong></div>
+            <div><span>Notas</span><strong>@notasExibidas.Count</strong></div>
+            <div><span>Valor total</span><strong>@Moeda(notasExibidas.Sum(x => x.ValorDocumento))</strong></div>
+            <div><span>Base ICMS</span><strong>@Moeda(notasExibidas.Sum(x => x.ValorBaseIcms))</strong></div>
+            <div><span>ICMS informado</span><strong>@Moeda(notasExibidas.Sum(x => x.ValorIcmsCredito))</strong></div>
+            <div class="allowed-summary"><span>Crédito permitido</span><strong>@Moeda(notasExibidas.Sum(x => x.ValorIcmsCreditoPermitido))</strong></div>
+            <div class="difference-summary"><span>Divergência</span><strong>@Moeda(notasExibidas.Sum(x => x.DiferencaIcmsCredito))</strong></div>
         </section>
+        @if (mostrarResumoNcm)
+        {
+            <section class="ncm-summary-panel">
+                <div class="section-heading"><div><span class="eyebrow">Divergências</span><h2>Resumo por NCM</h2></div><strong>@Moeda(divergenciasPorNcm.Sum(x => x.Divergencia))</strong></div>
+                @if (carregandoResumoNcm) { <div class="history-empty">Carregando resumo...</div> }
+                else if (divergenciasPorNcm.Count == 0) { <div class="history-empty">Nenhuma divergência por NCM encontrada.</div> }
+                else
+                {
+                    <div class="table-wrap"><table class="ncm-table"><thead><tr><th>NCM</th><th class="number">Notas</th><th class="number">Itens</th><th class="number">Valor dos itens</th><th class="number">Base ICMS</th><th class="number">ICMS informado</th><th class="number">Crédito permitido</th><th class="number">Divergência</th></tr></thead><tbody>
+                    @foreach (var item in divergenciasPorNcm) { <tr><td><strong>@item.Ncm</strong></td><td class="number">@item.QuantidadeNotas</td><td class="number">@item.QuantidadeItens</td><td class="number">@Moeda(item.ValorItens)</td><td class="number">@Moeda(item.BaseIcms)</td><td class="number">@Moeda(item.IcmsInformado)</td><td class="number">@Moeda(item.CreditoPermitido)</td><td class="number credit-difference">@Moeda(item.Divergencia)</td></tr> }
+                    </tbody></table></div>
+                }
+            </section>
+        }
+        @if (notasExibidas.Count == 0)
+        {
+            <div class="history-empty">Nenhuma nota com divergência foi encontrada.</div>
+        }
+        else
+        {
         <div class="table-wrap"><table class="notes-table">
-            <thead><tr><th></th><th>Nota</th><th>Participante</th><th>Data de entrada</th><th>Chave</th><th class="number">Valor total</th><th class="number">ICMS informado</th><th class="number">Crédito permitido</th><th class="number">Divergência</th></tr></thead>
+            <thead><tr><th></th><th>Nota</th><th>Situação</th><th>Participante</th><th>Data de entrada</th><th>Chave</th><th class="number">Valor total</th><th class="number">ICMS informado</th><th class="number">Crédito permitido</th><th class="number">Divergência</th></tr></thead>
             <tbody>
-            @foreach (var nota in notas)
+            @foreach (var nota in notasExibidas)
             {
-                <tr class="note-row">
+                <tr class="note-row @ClasseSituacaoNota(nota)">
                     <td><button type="button" class="expand-button" @onclick="() => AlternarItensAsync(nota)">@(notasAbertas.Contains(nota.SpedC100Id) ? "−" : "+")</button></td>
                     <td><strong>@nota.NumeroDocumento</strong><small>Modelo @nota.CodigoModelo · Série @nota.Serie</small></td>
+                    <td><span class="note-status @ClasseSituacaoNota(nota)">@TextoSituacaoNota(nota)</span></td>
                     <td><strong>@nota.NomeParticipante</strong><small>@nota.CodigoParticipante</small></td>
                     <td>@Data(nota.DataEntradaSaida ?? nota.DataDocumento)</td>
                     <td class="key-cell" title="@nota.ChaveNfe">@(string.IsNullOrWhiteSpace(nota.ChaveNfe) ? "-" : nota.ChaveNfe)</td>
@@ -120,7 +144,7 @@
                 </tr>
                 @if (notasAbertas.Contains(nota.SpedC100Id))
                 {
-                    <tr class="items-row"><td colspan="9">
+                    <tr class="items-row"><td colspan="10">
                     @if (!itensPorNota.TryGetValue(nota.SpedC100Id, out var itens)) { <div class="loading-items">Carregando itens...</div> }
                     else if (itens.Count == 0) { <div class="empty-items">Nenhum item C170 encontrado para esta nota.</div> }
                     else { <table class="items-table"><thead><tr><th>Item</th><th>Código</th><th>Descrição</th><th>NCM</th><th>CFOP</th><th>CST</th><th class="number">Valor</th><th class="number">Base ICMS</th><th class="number">Alíquota</th><th class="number">ICMS informado</th><th>Validação</th><th class="number">Crédito permitido</th><th class="number">Diferença</th></tr></thead><tbody>
@@ -145,6 +169,7 @@
             }
             </tbody>
         </table></div>
+        }
     }
 </section>
 
@@ -160,6 +185,12 @@
     private PreAnaliseSpedImportacaoResultado? resultado;
     private IReadOnlyList<PreAnaliseSpedResumoDto> historico = [];
     private IReadOnlyList<DashboardNotaEntradaFornecedorDto> notas = [];
+    private bool apenasDivergencias;
+    private bool mostrarResumoNcm, carregandoResumoNcm;
+    private IReadOnlyList<PreAnaliseDivergenciaNcmDto> divergenciasPorNcm = [];
+    private IReadOnlyList<DashboardNotaEntradaFornecedorDto> NotasExibidas => apenasDivergencias
+        ? notas.Where(x => x.DiferencaIcmsCredito > 0 || x.ItensComDivergencia > 0).ToArray()
+        : notas;
     private readonly Dictionary<int, IReadOnlyList<DashboardNotaEntradaItemDto>> itensPorNota = [];
     private readonly HashSet<int> notasAbertas = [];
     private bool excluindo => excluindoId.HasValue;
@@ -183,12 +214,12 @@
         }
     }
 
-    private void SelecionarArquivo(InputFileChangeEventArgs e) { arquivo = e.File; resultado = null; notas = []; mensagem = null; }
+    private void SelecionarArquivo(InputFileChangeEventArgs e) { arquivo = e.File; resultado = null; notas = []; mensagem = null; mostrarResumoNcm=false; divergenciasPorNcm=[]; }
 
     private async Task ImportarAsync()
     {
         if (arquivo is null) return;
-        importando = true; mensagem = null; resultado = null; notas = []; notasAbertas.Clear(); itensPorNota.Clear();
+        importando = true; mensagem = null; resultado = null; notas = []; notasAbertas.Clear(); itensPorNota.Clear(); mostrarResumoNcm=false; divergenciasPorNcm=[];
         var pasta = Path.Combine(Environment.ContentRootPath, "App_Data", "Uploads", "pre-analise-" + Guid.NewGuid().ToString("N"));
         try
         {
@@ -212,10 +243,21 @@
             itensPorNota[nota.SpedC100Id] = await Repository.GetItensAsync(nota.SpedC100Id);
     }
 
+    private async Task AlternarResumoNcmAsync()
+    {
+        mostrarResumoNcm = !mostrarResumoNcm;
+        if (!mostrarResumoNcm || resultado is null || divergenciasPorNcm.Count > 0) return;
+        carregandoResumoNcm = true;
+        try { divergenciasPorNcm = await Repository.GetDivergenciasPorNcmAsync(resultado.PreAnaliseSpedId); }
+        finally { carregandoResumoNcm = false; }
+    }
+
     private async Task AbrirAsync(PreAnaliseSpedResumoDto preAnalise)
     {
         carregandoAnalise = true;
         mensagem = null;
+        mostrarResumoNcm = false;
+        divergenciasPorNcm = [];
         notasAbertas.Clear();
         itensPorNota.Clear();
         try
@@ -287,6 +329,13 @@
     private static string Moeda(decimal v) => v.ToString("C", CulturaBrasil);
     private static string MoedaOpcional(decimal? v) => v?.ToString("C", CulturaBrasil) ?? "-";
     private static string Percentual(decimal v) => v.ToString("N2", CulturaBrasil) + "%";
+    private static bool NotaComDivergencia(DashboardNotaEntradaFornecedorDto nota) => nota.DiferencaIcmsCredito > 0 || nota.ItensComDivergencia > 0;
+    private static string TextoSituacaoNota(DashboardNotaEntradaFornecedorDto nota) => NotaComDivergencia(nota)
+        ? "Com divergência"
+        : nota.ItensParaRevisao > 0 ? "Revisar" : "Sem divergência";
+    private static string ClasseSituacaoNota(DashboardNotaEntradaFornecedorDto nota) => NotaComDivergencia(nota)
+        ? "has-divergence"
+        : nota.ItensParaRevisao > 0 ? "needs-review" : "no-divergence";
     private static string ClasseClassificacao(string classificacao) => classificacao switch
     {
         "SEM_CREDITO_ST" => "blocked",
