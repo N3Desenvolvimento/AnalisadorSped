@@ -8,9 +8,12 @@ public interface IPreAnaliseSpedRepository
     Task<int> SalvarAsync(PreAnaliseSpedDados dados, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<PreAnaliseRegraItemDto>> GetRegrasAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyList<PreAnaliseRegraItemDto>> GetRegrasAtivasAsync(string? ufDestino, DateTime competencia, CancellationToken cancellationToken = default);
+    Task<int> AdicionarRegraNcmAsync(string ncm, string nome, string? fundamentoLegal, DateTime vigenciaInicial, CancellationToken cancellationToken = default);
+    Task<bool> RemoverRegraAsync(int preAnaliseRegraItemId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<PreAnaliseSpedResumoDto>> GetPreAnalisesAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyList<DashboardNotaEntradaFornecedorDto>> GetNotasAsync(int preAnaliseSpedId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<DashboardNotaEntradaItemDto>> GetItensAsync(int preAnaliseSpedNotaId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<PreAnaliseProdutoExcelDto>> GetProdutosExcelAsync(int preAnaliseSpedId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<PreAnaliseDivergenciaNcmDto>> GetDivergenciasPorNcmAsync(int preAnaliseSpedId, CancellationToken cancellationToken = default);
     Task<bool> ExcluirAsync(int preAnaliseSpedId, CancellationToken cancellationToken = default);
 }
@@ -161,6 +164,72 @@ public sealed class PreAnaliseSpedRepository : IPreAnaliseSpedRepository
             cancellationToken: cancellationToken))).AsList();
     }
 
+    public async Task<int> AdicionarRegraNcmAsync(
+        string ncm, string nome, string? fundamentoLegal, DateTime vigenciaInicial,
+        CancellationToken cancellationToken = default)
+    {
+        var ncmNormalizado = new string((ncm ?? string.Empty).Where(char.IsDigit).ToArray());
+        if (ncmNormalizado.Length != 8)
+            throw new ArgumentException("O NCM deve conter exatamente 8 dígitos.", nameof(ncm));
+
+        const string sql = """
+            IF EXISTS (SELECT 1 FROM PRE_ANALISE_REGRA_ITEM WHERE NCM_PREFIXO=@Ncm)
+                THROW 50001, 'Já existe uma regra cadastrada para este NCM.', 1;
+
+            INSERT INTO PRE_ANALISE_REGRA_ITEM
+                (CODIGO,NOME,UF_DESTINO,NCM_PREFIXO,RESULTADO,PERCENTUAL_CREDITO,PRIORIDADE,
+                 FUNDAMENTO_LEGAL,VIGENCIA_INICIAL,ATIVA)
+            OUTPUT INSERTED.ID_PRE_ANALISE_REGRA_ITEM
+            VALUES ('ST_RN_NCM_'+@Ncm,@Nome,'RN',@Ncm,'SEM_CREDITO_ST',0,30,
+                    @FundamentoLegal,@VigenciaInicial,1);
+            """;
+
+        await using var connection = _connectionFactory.CreateConnection();
+        return await connection.QuerySingleAsync<int>(new CommandDefinition(sql, new
+        {
+            Ncm = ncmNormalizado,
+            Nome = string.IsNullOrWhiteSpace(nome)
+                ? $"Produto ST sem crédito no RN - NCM {ncmNormalizado}"
+                : nome.Trim(),
+            FundamentoLegal = string.IsNullOrWhiteSpace(fundamentoLegal) ? null : fundamentoLegal.Trim(),
+            VigenciaInicial = vigenciaInicial.Date
+        }, cancellationToken: cancellationToken));
+    }
+
+    public async Task<bool> RemoverRegraAsync(
+        int preAnaliseRegraItemId, CancellationToken cancellationToken = default)
+    {
+        const string desvincularSql = """
+            UPDATE PRE_ANALISE_SPED_ITEM
+            SET ID_PRE_ANALISE_REGRA_ITEM=NULL
+            WHERE ID_PRE_ANALISE_REGRA_ITEM=@Id;
+            """;
+        const string excluirSql = """
+            DELETE FROM PRE_ANALISE_REGRA_ITEM
+            WHERE ID_PRE_ANALISE_REGRA_ITEM=@Id;
+            """;
+
+        await using var connection = _connectionFactory.CreateConnection();
+        await connection.OpenAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                desvincularSql, new { Id = preAnaliseRegraItemId }, transaction,
+                cancellationToken: cancellationToken));
+            var removidas = await connection.ExecuteAsync(new CommandDefinition(
+                excluirSql, new { Id = preAnaliseRegraItemId }, transaction,
+                cancellationToken: cancellationToken));
+            await transaction.CommitAsync(cancellationToken);
+            return removidas > 0;
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+    }
+
     public async Task<IReadOnlyList<PreAnaliseSpedResumoDto>> GetPreAnalisesAsync(
         CancellationToken cancellationToken = default)
     {
@@ -187,6 +256,31 @@ public sealed class PreAnaliseSpedRepository : IPreAnaliseSpedRepository
         await using var connection = _connectionFactory.CreateConnection();
         return (await connection.QueryAsync<PreAnaliseSpedResumoDto>(new CommandDefinition(
             sql, cancellationToken: cancellationToken))).AsList();
+    }
+
+    public async Task<IReadOnlyList<PreAnaliseProdutoExcelDto>> GetProdutosExcelAsync(
+        int preAnaliseSpedId, CancellationToken cancellationToken = default)
+    {
+        const string sql = """
+            SELECT COALESCE(NULLIF(LTRIM(RTRIM(I.DESCRICAO)),''),NULLIF(LTRIM(RTRIM(I.COD_ITEM)),''),'Produto sem descrição') AS Produto,
+                   COALESCE(I.NCM,'') AS Ncm,
+                   I.VL_ITEM AS ValorTotal,
+                   I.VL_ICMS AS IcmsCreditado,
+                   COALESCE(NULLIF(LTRIM(RTRIM(I.CLASSIFICACAO)),''),'PENDENTE') AS SituacaoAnalise,
+                   COALESCE(NULLIF(LTRIM(RTRIM(N.NOME_PARTICIPANTE)),''),NULLIF(LTRIM(RTRIM(N.CNPJ_PARTICIPANTE)),''),'Fornecedor não informado') AS Fornecedor,
+                   COALESCE(N.NUM_DOC,'') AS NumeroNota,
+                   COALESCE(N.CHV_NFE,'') AS ChaveNfe
+            FROM PRE_ANALISE_SPED_ITEM I
+            INNER JOIN PRE_ANALISE_SPED_NOTA N
+                ON N.ID_PRE_ANALISE_SPED_NOTA=I.ID_PRE_ANALISE_SPED_NOTA
+            WHERE N.ID_PRE_ANALISE_SPED=@PreAnaliseSpedId
+            ORDER BY Produto,Fornecedor,NumeroNota,I.NUM_ITEM;
+            """;
+
+        await using var connection = _connectionFactory.CreateConnection();
+        return (await connection.QueryAsync<PreAnaliseProdutoExcelDto>(new CommandDefinition(
+            sql, new { PreAnaliseSpedId = preAnaliseSpedId },
+            cancellationToken: cancellationToken))).AsList();
     }
 
     public async Task<IReadOnlyList<DashboardNotaEntradaFornecedorDto>> GetNotasAsync(

@@ -87,6 +87,19 @@ app.MapGet("/downloads/pre-analise-icms/{preAnaliseSpedId:int}", async (
         $"pre_analise_icms_{preAnaliseSpedId}.xlsx");
 });
 
+app.MapGet("/downloads/pre-analise-produtos/{preAnaliseSpedId:int}", async (
+    int preAnaliseSpedId,
+    IPreAnaliseSpedRepository repository,
+    INotasEntradaExcelService excelService,
+    CancellationToken cancellationToken) =>
+{
+    var produtos = await repository.GetProdutosExcelAsync(preAnaliseSpedId, cancellationToken);
+    var arquivo = excelService.GerarAnaliseProdutos(produtos);
+    return Results.File(arquivo,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        $"analise_de_produtos_{preAnaliseSpedId}.xlsx");
+});
+
 app.MapGet("/downloads/apuracao-icms/{empresaId:int}/{ano:int}/{mes:int}", async (
     int empresaId,
     int ano,

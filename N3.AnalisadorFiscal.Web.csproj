@@ -18,6 +18,10 @@
     <Compile Remove="N3.AnalisadorFiscal.Domain\**\*.cs" />
     <Compile Remove="N3.AnalisadorFiscal.Data\**\*.cs" />
     <Compile Remove="N3.AnalisadorFiscal.Sped\**\*.cs" />
+    <Compile Remove="tmp\**\*.cs" />
+    <Content Remove="tmp\**" />
+    <None Remove="tmp\**" />
+    <EmbeddedResource Remove="tmp\**" />
   </ItemGroup>
 
 

@@ -62,6 +62,7 @@
                             @if (item.TotalNotas > 0)
                             {
                                 <a class="history-excel-button" href="@UrlExcelDa(item.PreAnaliseSpedId)">Excel</a>
+                                <a class="history-product-excel-button" href="@UrlAnaliseProdutosDa(item.PreAnaliseSpedId)">Análise de produtos</a>
                             }
                             <button type="button" class="history-delete-button" @onclick="() => ExcluirAsync(item.PreAnaliseSpedId)" disabled="@Ocupado">
                                 @(excluindoId == item.PreAnaliseSpedId ? "Excluindo..." : "Excluir")
@@ -88,6 +89,7 @@
             @if (notas.Count > 0)
             {
                 <a class="excel-button" href="@UrlExcel">Baixar notas em Excel</a>
+                <a class="product-excel-button" href="@UrlAnaliseProdutos">Análise de produtos</a>
             }
             <button type="button" class="delete-button" @onclick="() => ExcluirAsync(resultado!.PreAnaliseSpedId)" disabled="@Ocupado">
                 @(excluindo ? "Excluindo..." : "Excluir pré-análise")
@@ -196,7 +198,9 @@
     private bool excluindo => excluindoId.HasValue;
     private bool Ocupado => importando || carregandoAnalise || excluindo;
     private string UrlExcel => resultado is null ? "#" : $"/downloads/pre-analise-icms/{resultado.PreAnaliseSpedId}";
+    private string UrlAnaliseProdutos => resultado is null ? "#" : UrlAnaliseProdutosDa(resultado.PreAnaliseSpedId);
     private static string UrlExcelDa(int preAnaliseSpedId) => $"/downloads/pre-analise-icms/{preAnaliseSpedId}";
+    private static string UrlAnaliseProdutosDa(int preAnaliseSpedId) => $"/downloads/pre-analise-produtos/{preAnaliseSpedId}";
 
     protected override async Task OnInitializedAsync()
     {

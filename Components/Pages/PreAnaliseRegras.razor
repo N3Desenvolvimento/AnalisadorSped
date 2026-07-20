@@ -10,12 +10,12 @@
 <section class="rules-page">
     <header class="rules-header">
         <div><span class="eyebrow">Configuração fiscal</span><h1>Regras da pré-análise</h1><p>Consulte os critérios utilizados para classificar os itens e calcular o crédito permitido.</p></div>
-        <a class="back-button" href="/pre-analise-icms">Voltar para pré-análise</a>
+        <div class="header-actions"><button type="button" class="add-button" @onclick="AbrirInclusao">Adicionar regra</button><a class="back-button" href="/pre-analise-icms">Voltar para pré-análise</a></div>
     </header>
 
     @if (!string.IsNullOrWhiteSpace(mensagem))
     {
-        <div class="message error">@mensagem</div>
+        <div class="message @(mensagemErro ? "error" : "success")">@mensagem</div>
     }
 
     <section class="rules-summary">
@@ -42,8 +42,8 @@
     {
         <div class="rules-table-wrap">
         <table class="rules-table">
-            <colgroup><col class="col-order" /><col class="col-rule" /><col class="col-scope" /><col class="col-ncm" /><col class="col-criteria" /><col class="col-result" /><col class="col-validity" /><col class="col-status" /><col class="col-legal" /></colgroup>
-            <thead><tr><th>Ordem</th><th>Regra</th><th>Abrangência</th><th>NCM</th><th>Critérios do item</th><th>Resultado</th><th>Vigência</th><th>Situação</th><th>Fundamento</th></tr></thead>
+            <colgroup><col class="col-order" /><col class="col-rule" /><col class="col-scope" /><col class="col-ncm" /><col class="col-criteria" /><col class="col-result" /><col class="col-validity" /><col class="col-status" /><col class="col-legal" /><col class="col-actions" /></colgroup>
+            <thead><tr><th>Ordem</th><th>Regra</th><th>Abrangência</th><th>NCM</th><th>Critérios do item</th><th>Resultado</th><th>Vigência</th><th>Situação</th><th>Fundamento</th><th>Ações</th></tr></thead>
             <tbody>
             @foreach (var regra in RegrasFiltradas)
             {
@@ -57,6 +57,7 @@
                     <td>@regra.VigenciaInicial.ToString("dd/MM/yyyy")<small>até @(regra.VigenciaFinal?.ToString("dd/MM/yyyy") ?? "sem término")</small></td>
                     <td><span class="status-badge @(regra.Ativa ? "active" : "inactive")">@(regra.Ativa ? "Ativa" : "Inativa")</span></td>
                     <td class="legal-cell">@(string.IsNullOrWhiteSpace(regra.FundamentoLegal) ? "Não informado" : regra.FundamentoLegal)</td>
+                    <td><button type="button" class="delete-button" @onclick="() => AbrirRemocao(regra)">Remover</button></td>
                 </tr>
             }
             </tbody>
@@ -65,6 +66,38 @@
     }
 </section>
 
+@if (modalInclusaoAberto)
+{
+    <div class="rules-modal-backdrop" aria-hidden="true"></div>
+    <div class="rules-modal-shell">
+        <section class="rules-modal" role="dialog" aria-modal="true" aria-labelledby="add-rule-title">
+            <header><h2 id="add-rule-title">Adicionar regra por NCM</h2><button type="button" class="modal-close" @onclick="FecharModais" disabled="@processando" aria-label="Fechar">×</button></header>
+            <p>O produto será tratado como sujeito à substituição tributária e sem direito a crédito no RN.</p>
+            @if (!string.IsNullOrWhiteSpace(erroModal)) { <div class="modal-error">@erroModal</div> }
+            <div class="modal-fields">
+                <label><span>NCM completo *</span><input maxlength="8" inputmode="numeric" placeholder="8 dígitos" @bind="novoNcm" @bind:event="oninput" /></label>
+                <label><span>Nome da regra</span><input maxlength="200" placeholder="Ex.: Produto ST sem crédito no RN" @bind="novoNome" /></label>
+                <label><span>Início da vigência *</span><input type="date" @bind="novaVigencia" /></label>
+                <label class="full"><span>Fundamento legal</span><textarea rows="4" maxlength="1000" @bind="novoFundamento"></textarea></label>
+            </div>
+            <footer><button type="button" class="cancel-button" @onclick="FecharModais" disabled="@processando">Cancelar</button><button type="button" class="save-rule-button" @onclick="AdicionarAsync" disabled="@processando">@(processando ? "Salvando..." : "Adicionar regra")</button></footer>
+        </section>
+    </div>
+}
+
+@if (regraParaRemover is not null)
+{
+    <div class="rules-modal-backdrop" aria-hidden="true"></div>
+    <div class="rules-modal-shell">
+        <section class="rules-modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-rule-title">
+            <header><h2 id="delete-rule-title">Remover regra</h2><button type="button" class="modal-close" @onclick="FecharModais" disabled="@processando" aria-label="Fechar">×</button></header>
+            <p>Deseja remover a regra do NCM <strong>@regraParaRemover.NcmPrefixo</strong>? As notas e análises existentes não serão apagadas.</p>
+            @if (!string.IsNullOrWhiteSpace(erroModal)) { <div class="modal-error">@erroModal</div> }
+            <footer><button type="button" class="cancel-button" @onclick="FecharModais" disabled="@processando">Cancelar</button><button type="button" class="confirm-delete-button" @onclick="RemoverAsync" disabled="@processando">@(processando ? "Removendo..." : "Remover regra")</button></footer>
+        </section>
+    </div>
+}
+
 @code {
     private static readonly CultureInfo CulturaBrasil = new("pt-BR");
     private IReadOnlyList<PreAnaliseRegraItemDto> regras = [];
@@ -72,6 +105,15 @@
     private string filtro = string.Empty;
     private string situacao = "TODAS";
     private string? mensagem;
+    private bool mensagemErro;
+    private bool modalInclusaoAberto;
+    private bool processando;
+    private string novoNcm = string.Empty;
+    private string novoNome = string.Empty;
+    private string novoFundamento = "Anexo 198 do RICMS/RN - produto sujeito à substituição tributária sem direito a crédito.";
+    private DateTime novaVigencia = new(DateTime.Today.Year, 1, 1);
+    private string? erroModal;
+    private PreAnaliseRegraItemDto? regraParaRemover;
 
     private IReadOnlyList<PreAnaliseRegraItemDto> RegrasFiltradas => regras
         .Where(RegraCorresponde)
@@ -80,8 +122,71 @@
     protected override async Task OnInitializedAsync()
     {
         try { regras = await Repository.GetRegrasAsync(); }
-        catch (Exception ex) { mensagem = $"Não foi possível carregar as regras fiscais: {ex.Message}"; }
+        catch (Exception ex) { mensagem = $"Não foi possível carregar as regras fiscais: {ex.Message}"; mensagemErro = true; }
         finally { carregando = false; }
+    }
+
+    private void AbrirInclusao()
+    {
+        novoNcm = string.Empty;
+        novoNome = string.Empty;
+        novoFundamento = "Anexo 198 do RICMS/RN - produto sujeito à substituição tributária sem direito a crédito.";
+        novaVigencia = new DateTime(DateTime.Today.Year, 1, 1);
+        erroModal = null;
+        regraParaRemover = null;
+        modalInclusaoAberto = true;
+    }
+
+    private void AbrirRemocao(PreAnaliseRegraItemDto regra)
+    {
+        erroModal = null;
+        modalInclusaoAberto = false;
+        regraParaRemover = regra;
+    }
+
+    private void FecharModais()
+    {
+        if (processando) return;
+        modalInclusaoAberto = false;
+        regraParaRemover = null;
+        erroModal = null;
+    }
+
+    private async Task AdicionarAsync()
+    {
+        erroModal = null;
+        var ncm = new string(novoNcm.Where(char.IsDigit).ToArray());
+        if (ncm.Length != 8) { erroModal = "Informe o NCM completo com 8 dígitos."; return; }
+        processando = true;
+        try
+        {
+            await Repository.AdicionarRegraNcmAsync(ncm, novoNome, novoFundamento, novaVigencia);
+            regras = await Repository.GetRegrasAsync();
+            modalInclusaoAberto = false;
+            mensagem = $"Regra do NCM {ncm} adicionada com sucesso.";
+            mensagemErro = false;
+        }
+        catch (Exception ex) { erroModal = $"Não foi possível adicionar a regra: {ex.Message}"; }
+        finally { processando = false; }
+    }
+
+    private async Task RemoverAsync()
+    {
+        if (regraParaRemover is null) return;
+        erroModal = null;
+        processando = true;
+        try
+        {
+            var ncm = regraParaRemover.NcmPrefixo;
+            if (!await Repository.RemoverRegraAsync(regraParaRemover.PreAnaliseRegraItemId))
+            { erroModal = "A regra não foi encontrada."; return; }
+            regras = await Repository.GetRegrasAsync();
+            regraParaRemover = null;
+            mensagem = $"Regra do NCM {ncm} removida com sucesso.";
+            mensagemErro = false;
+        }
+        catch (Exception ex) { erroModal = $"Não foi possível remover a regra: {ex.Message}"; }
+        finally { processando = false; }
     }
 
     private bool RegraCorresponde(PreAnaliseRegraItemDto regra)

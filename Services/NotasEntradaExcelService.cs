@@ -9,6 +9,7 @@ public interface INotasEntradaExcelService
 {
     byte[] Gerar(IReadOnlyList<DashboardNotaEntradaFornecedorDto> notas);
     byte[] GerarNfse(IReadOnlyList<IssNotaDto> notas);
+    byte[] GerarAnaliseProdutos(IReadOnlyList<PreAnaliseProdutoExcelDto> produtos);
 }
 
 public sealed class NotasEntradaExcelService : INotasEntradaExcelService
@@ -46,6 +47,80 @@ public sealed class NotasEntradaExcelService : INotasEntradaExcelService
 
         return stream.ToArray();
     }
+
+    public byte[] GerarAnaliseProdutos(IReadOnlyList<PreAnaliseProdutoExcelDto> produtos)
+    {
+        using var stream = new MemoryStream();
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            AdicionarEntrada(archive, "[Content_Types].xml", ContentTypesXml());
+            AdicionarEntrada(archive, "_rels/.rels", RootRelsXml());
+            AdicionarEntrada(archive, "xl/workbook.xml", WorkbookXml("Análise de produtos"));
+            AdicionarEntrada(archive, "xl/_rels/workbook.xml.rels", WorkbookRelsXml());
+            AdicionarEntrada(archive, "xl/styles.xml", StylesXml());
+            AdicionarEntrada(archive, "xl/worksheets/sheet1.xml", WorksheetAnaliseProdutosXml(produtos));
+        }
+
+        return stream.ToArray();
+    }
+
+    private static string WorksheetAnaliseProdutosXml(IReadOnlyList<PreAnaliseProdutoExcelDto> produtos)
+    {
+        var sb = new StringBuilder();
+        sb.Append("""
+            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+              <sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+              <cols>
+                <col min="1" max="1" width="52" customWidth="1"/>
+                <col min="2" max="2" width="14" customWidth="1"/>
+                <col min="3" max="4" width="18" customWidth="1"/>
+                <col min="5" max="5" width="22" customWidth="1"/>
+                <col min="6" max="6" width="42" customWidth="1"/>
+                <col min="7" max="7" width="18" customWidth="1"/>
+                <col min="8" max="8" width="48" customWidth="1"/>
+              </cols>
+              <sheetData>
+            """);
+
+        AdicionarLinhaTexto(sb, 1, true,
+            "Produto", "NCM", "Valor total", "ICMS creditado", "Situação da análise", "Fornecedor", "Número da nota", "Chave");
+
+        var linha = 2;
+        foreach (var produto in produtos)
+        {
+            sb.Append($"<row r=\"{linha}\">");
+            AdicionarCelulaTexto(sb, "A", linha, produto.Produto);
+            AdicionarCelulaTexto(sb, "B", linha, produto.Ncm);
+            AdicionarCelulaNumero(sb, "C", linha, produto.ValorTotal);
+            AdicionarCelulaNumero(sb, "D", linha, produto.IcmsCreditado);
+            AdicionarCelulaTexto(sb, "E", linha, FormatarSituacaoAnalise(produto.SituacaoAnalise));
+            AdicionarCelulaTexto(sb, "F", linha, produto.Fornecedor);
+            AdicionarCelulaTexto(sb, "G", linha, produto.NumeroNota);
+            AdicionarCelulaTexto(sb, "H", linha, produto.ChaveNfe);
+            sb.Append("</row>");
+            linha++;
+        }
+
+        sb.Append($"""
+              </sheetData>
+              <autoFilter ref="A1:H{Math.Max(1, linha - 1)}"/>
+              <pageMargins left="0.4" right="0.4" top="0.6" bottom="0.6" header="0.2" footer="0.2"/>
+            </worksheet>
+            """);
+        return sb.ToString();
+    }
+
+    private static string FormatarSituacaoAnalise(string? situacao) => situacao switch
+    {
+        "SEM_CREDITO_ST" => "Sem crédito · ST",
+        "SEM_CREDITO" => "Sem crédito",
+        "CREDITO_PERMITIDO" => "Crédito permitido",
+        "REVISAR" => "Revisar",
+        "DIVERGENTE" => "Divergente",
+        null or "" => "Pendente",
+        _ => situacao.Replace('_', ' ')
+    };
 
     private static string WorksheetNfseXml(IReadOnlyList<IssNotaDto> notas)
     {
