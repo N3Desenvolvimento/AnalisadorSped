@@ -1,0 +1,31 @@
+@using N3.AnalisadorFiscal.Web.Services
+
+<section class="movement-section">
+    <div class="section-title">
+        <h3>@Titulo</h3>
+        <span>@Linhas.Count CFOP@(Linhas.Count == 1 ? "" : "s")</span>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>CFOP</th><th>Descrição</th><th>Valor contábil</th><th>Base de cálculo</th><th>Imposto</th><th>Isentas</th><th>Outras</th></tr></thead>
+            <tbody>
+                @foreach (var linha in Linhas)
+                {
+                    <tr><td class="cfop">@FormatarCfop(linha.Cfop)</td><td>@linha.Descricao</td><td>@Moeda(linha.ValorContabil)</td><td>@Moeda(linha.BaseCalculo)</td><td class="tax">@Moeda(linha.Imposto)</td><td>@Moeda(linha.Isentas)</td><td>@Moeda(linha.Outras)</td></tr>
+                }
+                @if (Linhas.Count == 0)
+                {
+                    <tr><td colspan="7" class="empty">Nenhum movimento encontrado</td></tr>
+                }
+            </tbody>
+            <tfoot><tr><td colspan="2">Totais</td><td>@Moeda(Linhas.Sum(x => x.ValorContabil))</td><td>@Moeda(Linhas.Sum(x => x.BaseCalculo))</td><td>@Moeda(Linhas.Sum(x => x.Imposto))</td><td>@Moeda(Linhas.Sum(x => x.Isentas))</td><td>@Moeda(Linhas.Sum(x => x.Outras))</td></tr></tfoot>
+        </table>
+    </div>
+</section>
+
+@code {
+    [Parameter] public string Titulo { get; set; } = "";
+    [Parameter] public IReadOnlyList<IcmsFortesLinha> Linhas { get; set; } = [];
+    private static string Moeda(decimal valor) => valor.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("pt-BR"));
+    private static string FormatarCfop(string valor) => valor.Length == 4 ? $"{valor[0]}.{valor[1..]}" : valor;
+}

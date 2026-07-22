@@ -22,6 +22,7 @@ builder.Services.AddScoped<IIcmsApuracaoPdfService, IcmsApuracaoPdfService>();
 builder.Services.AddScoped<IGuiaIcmsPdfLeituraService, GuiaIcmsPdfLeituraService>();
 builder.Services.AddScoped<IFolhaFortesImportService, FolhaFortesImportService>();
 builder.Services.AddScoped<IPreAnaliseFortesFiscalService, PreAnaliseFortesFiscalService>();
+builder.Services.AddScoped<IIcmsFortesApuracaoService, IcmsFortesApuracaoService>();
 builder.Services.Configure<NfseNacionalOptions>(builder.Configuration.GetSection(NfseNacionalOptions.SectionName));
 builder.Services.AddScoped<INfseNacionalService, NfseNacionalService>();
 builder.Services.AddSingleton<ICertificateStoreService, CertificateStoreService>();

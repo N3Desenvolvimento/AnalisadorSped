@@ -1,0 +1,120 @@
+@page "/apuracao-icms-fortes"
+@rendermode InteractiveServer
+@using N3.AnalisadorFiscal.Domain.Entities
+@using N3.AnalisadorFiscal.Data.Repositories
+@using N3.AnalisadorFiscal.Web.Services
+@inject IEmpresaRepository EmpresaRepository
+@inject IIcmsFortesApuracaoService Service
+
+<PageTitle>Apuração ICMS Fortes</PageTitle>
+
+<section class="apuracao-page">
+    <header class="page-header">
+        <div>
+            <span class="eyebrow">Consulta direta ao Fortes Fiscal</span>
+            <h1>Apuração de ICMS</h1>
+            <p>Consulte entradas, saídas e o saldo do imposto por competência.</p>
+        </div>
+    </header>
+
+    <div class="filters">
+        <label class="company">
+            <span>Empresa</span>
+            <select @bind="empresaId">
+                <option value="0">Selecione uma empresa</option>
+                @foreach (var empresa in empresas)
+                {
+                    <option value="@empresa.Id">@empresa.RazaoSocial — Fortes @empresa.CodigoEmpresaFiscalFortes</option>
+                }
+            </select>
+        </label>
+        <label>
+            <span>Ano</span>
+            <input type="number" min="2000" max="2100" @bind="ano" />
+        </label>
+        <label>
+            <span>Mês</span>
+            <select @bind="mes">
+                @for (var numeroMes = 1; numeroMes <= 12; numeroMes++)
+                {
+                    <option value="@numeroMes">@NomeMes(numeroMes)</option>
+                }
+            </select>
+        </label>
+        <button disabled="@(ocupado || empresaId == 0)" @onclick="ConsultarAsync">
+            @(ocupado ? "Consultando…" : "Consultar apuração")
+        </button>
+    </div>
+
+    @if (empresas.Count == 0)
+    {
+        <div class="message warning">Nenhuma empresa possui código do Fiscal Fortes cadastrado.</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(mensagem))
+    {
+        <div class="message error">@mensagem</div>
+    }
+
+    @if (resultado is not null)
+    {
+        <article class="report">
+            <div class="report-head">
+                <div>
+                    <span class="report-label">ICMS Normal</span>
+                    <h2>@resultado.Empresa</h2>
+                    <p>CNPJ @FormatarCnpj(resultado.Cnpj) <span>•</span> Código Fortes @resultado.CodigoFortes</p>
+                </div>
+                <div class="period">
+                    <small>Competência</small>
+                    <strong>@NomeMes(resultado.Mes) de @resultado.Ano</strong>
+                    <span>Fortes Fiscal</span>
+                </div>
+            </div>
+
+            <section class="summary-cards">
+                <div class="summary-card debit"><span>Débitos por saídas</span><strong>R$ @Moeda(resultado.Debitos)</strong></div>
+                <div class="summary-card credit"><span>Créditos por entradas</span><strong>R$ @Moeda(resultado.Creditos)</strong></div>
+                <div class="summary-card balance">
+                    <span>@(resultado.SaldoDevedor > 0 ? "Imposto a recolher" : "Saldo credor")</span>
+                    <strong>R$ @Moeda(resultado.SaldoDevedor > 0 ? resultado.SaldoDevedor : resultado.SaldoCredor)</strong>
+                </div>
+            </section>
+
+            <IcmsFortesTabela Titulo="Entradas" Linhas="resultado.Entradas" />
+            <IcmsFortesTabela Titulo="Saídas" Linhas="resultado.Saidas" />
+
+            <footer class="report-note">
+                Valores consolidados dos documentos fiscais válidos do Fortes. Ajustes, estornos,
+                deduções e saldo anterior não integram este cálculo documental.
+            </footer>
+        </article>
+    }
+</section>
+
+@code {
+    private static readonly string[] Meses = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+    private IReadOnlyList<Empresa> empresas = [];
+    private int empresaId;
+    private int ano = DateTime.Today.Year;
+    private int mes = DateTime.Today.Month;
+    private bool ocupado;
+    private string? mensagem;
+    private IcmsFortesApuracao? resultado;
+
+    protected override async Task OnInitializedAsync() => empresas = (await EmpresaRepository.GetAllAsync())
+        .Where(x => !string.IsNullOrWhiteSpace(x.CodigoEmpresaFiscalFortes))
+        .OrderBy(x => x.RazaoSocial)
+        .ToArray();
+
+    private async Task ConsultarAsync()
+    {
+        ocupado = true; mensagem = null; resultado = null;
+        try { resultado = await Service.ConsultarAsync(empresaId, ano, mes); }
+        catch (Exception ex) { mensagem = ex.Message; }
+        finally { ocupado = false; }
+    }
+
+    private static string NomeMes(int numero) => numero is >= 1 and <= 12 ? Meses[numero] : numero.ToString("00");
+    private static string Moeda(decimal valor) => valor.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("pt-BR"));
+    private static string FormatarCnpj(string valor) => valor.Length == 14 ? Convert.ToUInt64(valor).ToString(@"00\.000\.000\/0000\-00") : valor;
+}
