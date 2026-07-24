@@ -9,9 +9,13 @@
         <table>
             <thead><tr><th>CFOP</th><th>Descrição</th><th>Valor contábil</th><th>Base de cálculo</th><th>Imposto</th><th>Isentas</th><th>Outras</th></tr></thead>
             <tbody>
-                @foreach (var linha in Linhas)
+                @foreach (var grupo in Linhas.GroupBy(x => x.Cfop[0]))
                 {
-                    <tr><td class="cfop">@FormatarCfop(linha.Cfop)</td><td>@linha.Descricao</td><td>@Moeda(linha.ValorContabil)</td><td>@Moeda(linha.BaseCalculo)</td><td class="tax">@Moeda(linha.Imposto)</td><td>@Moeda(linha.Isentas)</td><td>@Moeda(linha.Outras)</td></tr>
+                    <tr class="group-row"><td>@($"{grupo.Key}.000")</td><td>@DescricaoGrupo(grupo.Key)</td><td>@Moeda(grupo.Sum(x => x.ValorContabil))</td><td>@Moeda(grupo.Sum(x => x.BaseCalculo))</td><td>@Moeda(grupo.Sum(x => x.Imposto))</td><td>@Moeda(grupo.Sum(x => x.Isentas))</td><td>@Moeda(grupo.Sum(x => x.Outras))</td></tr>
+                    @foreach (var linha in grupo)
+                    {
+                        <tr><td class="cfop">@FormatarCfop(linha.Cfop)</td><td>@linha.Descricao</td><td>@Moeda(linha.ValorContabil)</td><td>@Moeda(linha.BaseCalculo)</td><td class="tax">@Moeda(linha.Imposto)</td><td>@Moeda(linha.Isentas)</td><td>@Moeda(linha.Outras)</td></tr>
+                    }
                 }
                 @if (Linhas.Count == 0)
                 {
@@ -28,4 +32,5 @@
     [Parameter] public IReadOnlyList<IcmsFortesLinha> Linhas { get; set; } = [];
     private static string Moeda(decimal valor) => valor.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("pt-BR"));
     private static string FormatarCfop(string valor) => valor.Length == 4 ? $"{valor[0]}.{valor[1..]}" : valor;
+    private static string DescricaoGrupo(char grupo) => grupo switch { '1' => "Do Estado", '2' => "De outros Estados", '3' => "Do exterior", '5' => "Para o Estado", '6' => "Para outros Estados", '7' => "Para o exterior", _ => "" };
 }

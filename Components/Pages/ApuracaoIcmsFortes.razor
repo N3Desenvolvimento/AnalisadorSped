@@ -62,7 +62,7 @@
                 <div>
                     <span class="report-label">ICMS Normal</span>
                     <h2>@resultado.Empresa</h2>
-                    <p>CNPJ @FormatarCnpj(resultado.Cnpj) <span>•</span> Código Fortes @resultado.CodigoFortes</p>
+                    <p>CNPJ @FormatarCnpj(resultado.Cnpj) <span>•</span> Código Fortes @resultado.CodigoFortes <span>•</span> Estabelecimento 0001 - Matriz</p>
                 </div>
                 <div class="period">
                     <small>Competência</small>
@@ -82,6 +82,41 @@
 
             <IcmsFortesTabela Titulo="Entradas" Linhas="resultado.Entradas" />
             <IcmsFortesTabela Titulo="Saídas" Linhas="resultado.Saidas" />
+
+            <section class="adjustments">
+                <div class="adjustment-title">
+                    <div><span class="report-label">Ajustes da apuração</span><h3>Outros débitos e créditos</h3></div>
+                    <small>Fonte: lançamentos mensais do Fortes</small>
+                </div>
+                <div class="adjustment-grid">
+                    <div class="adjustment-card debit-adjustment">
+                        <header><span>Outros débitos</span><strong>R$ @Moeda(resultado.OutrosDebitos)</strong></header>
+                        @foreach (var ajuste in resultado.Ajustes.Where(x => x.Movimento == 1))
+                        {
+                            <div class="adjustment-row"><span>@DescricaoAjuste(ajuste)</span><b>@Moeda(ajuste.Valor)</b></div>
+                        }
+                        @if (!resultado.Ajustes.Any(x => x.Movimento == 1))
+                        {
+                            <p class="no-adjustments">Nenhum lançamento no período.</p>
+                        }
+                    </div>
+                    <div class="adjustment-card credit-adjustment">
+                        <header><span>Outros créditos</span><strong>R$ @Moeda(resultado.OutrosCreditos)</strong></header>
+                        @foreach (var ajuste in resultado.Ajustes.Where(x => x.Movimento == 3))
+                        {
+                            <div class="adjustment-row"><span>@DescricaoAjuste(ajuste)</span><b>@Moeda(ajuste.Valor)</b></div>
+                        }
+                        @if (!resultado.Ajustes.Any(x => x.Movimento == 3))
+                        {
+                            <p class="no-adjustments">Nenhum lançamento no período.</p>
+                        }
+                    </div>
+                </div>
+                <div class="adjusted-totals">
+                    <span>Total dos débitos <b>R$ @Moeda(resultado.TotalDebitos)</b></span>
+                    <span>Total dos créditos <b>R$ @Moeda(resultado.TotalCreditos)</b></span>
+                </div>
+            </section>
 
             <footer class="report-note">
                 Valores consolidados dos documentos fiscais válidos do Fortes. Ajustes, estornos,
@@ -117,4 +152,6 @@
     private static string NomeMes(int numero) => numero is >= 1 and <= 12 ? Meses[numero] : numero.ToString("00");
     private static string Moeda(decimal valor) => valor.ToString("N2", System.Globalization.CultureInfo.GetCultureInfo("pt-BR"));
     private static string FormatarCnpj(string valor) => valor.Length == 14 ? Convert.ToUInt64(valor).ToString(@"00\.000\.000\/0000\-00") : valor;
+    private static string DescricaoAjuste(IcmsFortesAjuste ajuste) => string.IsNullOrWhiteSpace(ajuste.Descricao)
+        ? $"Classificação {ajuste.Classificacao}" : ajuste.Descricao;
 }
