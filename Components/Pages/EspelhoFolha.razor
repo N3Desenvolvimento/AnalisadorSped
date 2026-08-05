@@ -6,37 +6,222 @@
 @using N3.AnalisadorFiscal.Domain.Entities
 @inject IEmpresaRepository EmpresaRepository
 @inject IFolhaPagamentoRepository FolhaRepository
+@inject IJSRuntime JS
 
 <PageTitle>Espelho da folha</PageTitle>
 
 <section class="mirror-page">
-    <header><h1>Espelho da folha</h1><p>Resumo e detalhamento dos eventos importados do Fortes.</p></header>
-    <section class="filters">
-        <label class="company"><span>Empresa</span><select @bind="empresaId"><option value="0">Selecione</option>@foreach(var empresa in empresas){<option value="@empresa.Id">@empresa.RazaoSocial</option>}</select></label>
-        <label><span>Mês</span><select @bind="mes">@for(var i=1;i<=12;i++){<option value="@i">@NomeMes(i)</option>}</select></label>
+    <header class="page-heading">
+        <div>
+            <h1>Espelho da folha</h1>
+            <p>Resumo da folha e contracheques dos colaboradores.</p>
+        </div>
+        @if (espelho is not null)
+        {
+            <div class="view-actions no-print">
+                <button class="@ClasseModo(false)" type="button" @onclick="() => exibirContracheques = false">Espelho</button>
+                <button class="@ClasseModo(true)" type="button" @onclick="() => exibirContracheques = true">Contracheques</button>
+            </div>
+        }
+    </header>
+
+    <section class="filters no-print">
+        <label class="company">
+            <span>Empresa</span>
+            <select @bind="empresaId">
+                <option value="0">Selecione</option>
+                @foreach (var empresa in empresas)
+                {
+                    <option value="@empresa.Id">@empresa.RazaoSocial</option>
+                }
+            </select>
+        </label>
+        <label>
+            <span>Mês</span>
+            <select @bind="mes">
+                @for (var i = 1; i <= 12; i++)
+                {
+                    <option value="@i">@NomeMes(i)</option>
+                }
+            </select>
+        </label>
         <label><span>Ano</span><input type="number" min="2000" max="2100" @bind="ano" /></label>
-        <button type="button" @onclick="CarregarAsync" disabled="@(carregando || empresaId==0)">@(carregando?"Carregando...":"Ver espelho")</button>
+        <button type="button" @onclick="CarregarAsync" disabled="@(carregando || empresaId == 0)">
+            @(carregando ? "Carregando..." : "Ver folha")
+        </button>
     </section>
-    @if(!string.IsNullOrWhiteSpace(mensagem)){<div class="message">@mensagem</div>}
-    @if(espelho is not null)
+
+    @if (!string.IsNullOrWhiteSpace(mensagem))
     {
-        <section class="sheet-header"><div><h2>@espelho.RazaoSocial</h2><span>Competência @espelho.Mes.ToString("00")/@espelho.Ano · @espelho.Trabalhadores.Count trabalhador(es)</span></div><small>Importado em @espelho.ImportadoEm.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</small></section>
-        <section class="summary"><article><span>Proventos</span><strong>@Moeda(espelho.TotalProventos)</strong></article><article><span>Descontos</span><strong>@Moeda(espelho.TotalDescontos)</strong></article><article class="net"><span>Líquido da folha</span><strong>@Moeda(espelho.TotalLiquido)</strong></article></section>
+        <div class="message">@mensagem</div>
+    }
+
+    @if (espelho is not null && !exibirContracheques)
+    {
+        <section class="sheet-header">
+            <div>
+                <h2>@espelho.RazaoSocial</h2>
+                <span>Competência @espelho.Mes.ToString("00")/@espelho.Ano · @espelho.Trabalhadores.Count trabalhador(es)</span>
+            </div>
+            <small>Importado em @espelho.ImportadoEm.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</small>
+        </section>
+        <section class="summary">
+            <article><span>Proventos</span><strong>@Moeda(espelho.TotalProventos)</strong></article>
+            <article><span>Descontos</span><strong>@Moeda(espelho.TotalDescontos)</strong></article>
+            <article class="net"><span>Líquido da folha</span><strong>@Moeda(espelho.TotalLiquido)</strong></article>
+        </section>
         <section class="employees">
-            @foreach(var trabalhador in espelho.Trabalhadores)
+            @foreach (var trabalhador in espelho.Trabalhadores)
             {
                 <details>
-                    <summary><div><strong>@trabalhador.Nome</strong><span>Código Fortes: @trabalhador.CodigoFortes</span></div><div class="employee-totals"><span>Proventos <b>@Moeda(trabalhador.TotalProventos)</b></span><span>Descontos <b>@Moeda(trabalhador.TotalDescontos)</b></span><span class="liquid">Líquido <b>@Moeda(trabalhador.Liquido)</b></span></div></summary>
-                    <div class="table-wrap"><table><thead><tr><th>Código</th><th>Evento</th><th>Tipo</th><th class="number">Referência</th><th class="number">Valor</th></tr></thead><tbody>@foreach(var evento in trabalhador.Eventos){<tr><td>@evento.CodigoFortes</td><td>@evento.Nome</td><td><span class="type @ClasseTipo(evento.TipoEvento)">@NomeTipo(evento.TipoEvento)</span></td><td class="number">@evento.Referencia.ToString("N2")</td><td class="number">@Moeda(evento.Valor)</td></tr>}</tbody><tfoot><tr><td colspan="4">Líquido</td><td class="number">@Moeda(trabalhador.Liquido)</td></tr></tfoot></table></div>
+                    <summary>
+                        <div><strong>@trabalhador.Nome</strong><span>Código Fortes: @trabalhador.CodigoFortes</span></div>
+                        <div class="employee-totals">
+                            <span>Proventos <b>@Moeda(trabalhador.TotalProventos)</b></span>
+                            <span>Descontos <b>@Moeda(trabalhador.TotalDescontos)</b></span>
+                            <span class="liquid">Líquido <b>@Moeda(trabalhador.Liquido)</b></span>
+                        </div>
+                    </summary>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>Código</th><th>Evento</th><th>Tipo</th><th class="number">Referência</th><th class="number">Valor</th></tr></thead>
+                            <tbody>
+                                @foreach (var evento in trabalhador.Eventos)
+                                {
+                                    <tr><td>@evento.CodigoFortes</td><td>@evento.Nome</td><td><span class="type @ClasseTipo(evento.TipoEvento)">@NomeTipo(evento.TipoEvento)</span></td><td class="number">@Referencia(evento.Referencia)</td><td class="number">@Moeda(evento.Valor)</td></tr>
+                                }
+                            </tbody>
+                            <tfoot><tr><td colspan="4">Líquido</td><td class="number">@Moeda(trabalhador.Liquido)</td></tr></tfoot>
+                        </table>
+                    </div>
                 </details>
+            }
+        </section>
+    }
+
+    @if (espelho is not null && exibirContracheques)
+    {
+        <section class="payslip-tools no-print">
+            <label>
+                <span>Colaborador</span>
+                <select @bind="trabalhadorId">
+                    <option value="0">Todos os colaboradores</option>
+                    @foreach (var trabalhador in espelho.Trabalhadores)
+                    {
+                        <option value="@trabalhador.Id">@trabalhador.Nome</option>
+                    }
+                </select>
+            </label>
+            <button type="button" @onclick="ImprimirAsync">Imprimir contracheques</button>
+            <a class="pdf-button" href="@UrlPdf">Baixar PDF</a>
+        </section>
+
+        <section class="payslips">
+            @foreach (var trabalhador in TrabalhadoresSelecionados)
+            {
+                <article class="payslip-page">
+                    @for (var via = 1; via <= 2; via++)
+                    {
+                        <section class="payslip">
+                            <header>
+                                <div class="receipt-title"><strong>Recibo de Pagamento</strong><span>( Folha de Pagamento )</span></div>
+                                <div class="signature">Data e Assinatura<br />____/____/________ &nbsp;&nbsp; __________________________________</div>
+                            </header>
+                            <div class="receipt-grid employer">
+                                <div><small>Empregador</small><strong>@espelho.RazaoSocial</strong></div>
+                                <div><small>Inscrição</small><strong>@CnpjEmpresa</strong></div>
+                                <div><small>Competência</small><strong>@CompetenciaExtenso</strong></div>
+                            </div>
+                            <div class="receipt-grid employee">
+                                <div><small>Empregado</small><strong>@trabalhador.CodigoFortes @trabalhador.Nome</strong></div>
+                                <div><small>Lotação</small><strong>GERAL</strong></div>
+                            </div>
+                            <div class="earnings-title">Discriminação das Verbas</div>
+                            <table class="receipt-table">
+                                <thead><tr><th>Cód.</th><th>Descrição</th><th>Referência</th><th>Provento</th><th>Desconto</th></tr></thead>
+                                <tbody>
+                                    @foreach (var evento in trabalhador.Eventos.Where(x => x.TipoEvento is 1 or -1))
+                                    {
+                                        <tr class="receipt-event">
+                                            <td>@evento.CodigoFortes</td>
+                                            <td>@evento.Nome</td>
+                                            <td class="number">@Referencia(evento.Referencia)</td>
+                                            <td class="number">@(evento.TipoEvento == 1 ? Numero(evento.Valor) : "")</td>
+                                            <td class="number">@(evento.TipoEvento == -1 ? Numero(evento.Valor) : "")</td>
+                                        </tr>
+                                    }
+                                    <tr class="receipt-spacer"><td colspan="5"></td></tr>
+                                </tbody>
+                                <tfoot>
+                                    <tr><td colspan="3"></td><td class="number"><small>Total de Proventos</small><strong>@Numero(trabalhador.TotalProventos)</strong></td><td class="number"><small>Total de Descontos</small><strong>@Numero(trabalhador.TotalDescontos)</strong></td></tr>
+                                    <tr><td colspan="3"></td><td colspan="2" class="net-pay"><small>Líquido a Receber</small><strong>@Numero(trabalhador.Liquido)</strong></td></tr>
+                                </tfoot>
+                            </table>
+                        </section>
+                    }
+                </article>
             }
         </section>
     }
 </section>
 
-@code{
-    private IReadOnlyList<Empresa> empresas=[];private FolhaEspelhoDto? espelho;private int empresaId,mes=DateTime.Today.Month,ano=DateTime.Today.Year;private bool carregando;private string? mensagem;
-    protected override async Task OnInitializedAsync()=>empresas=(await EmpresaRepository.GetAllAsync()).OrderBy(x=>x.RazaoSocial).ToArray();
-    private async Task CarregarAsync(){carregando=true;mensagem=null;try{espelho=await FolhaRepository.GetEspelhoAsync(empresaId,ano,mes);if(espelho is null)mensagem="Nenhuma folha importada para a competência selecionada.";}catch(Exception ex){espelho=null;mensagem=$"Não foi possível carregar o espelho: {ex.Message}";}finally{carregando=false;}}
-    private static string Moeda(decimal v)=>v.ToString("C2",CultureInfo.GetCultureInfo("pt-BR"));private static string NomeMes(int m)=>CultureInfo.GetCultureInfo("pt-BR").DateTimeFormat.GetMonthName(m);private static string NomeTipo(int t)=>t switch{1=>"Provento",-1=>"Desconto",_=>"Informativo"};private static string ClasseTipo(int t)=>t switch{1=>"earning",-1=>"deduction",_=>"info"};
+@code {
+    private IReadOnlyList<Empresa> empresas = [];
+    private FolhaEspelhoDto? espelho;
+    private int empresaId;
+    private int trabalhadorId;
+    private int mes = DateTime.Today.Month;
+    private int ano = DateTime.Today.Year;
+    private bool carregando;
+    private bool exibirContracheques;
+    private string? mensagem;
+
+    private IEnumerable<FolhaEspelhoTrabalhadorDto> TrabalhadoresSelecionados =>
+        espelho?.Trabalhadores.Where(x => trabalhadorId == 0 || x.Id == trabalhadorId) ?? [];
+
+    private Empresa? EmpresaSelecionada => empresas.FirstOrDefault(x => x.Id == empresaId);
+    private string CnpjEmpresa => FormatarCnpj(EmpresaSelecionada?.Cnpj);
+    private string CompetenciaExtenso => $"{NomeMes(espelho?.Mes ?? mes)} de {espelho?.Ano ?? ano}";
+    private string UrlPdf => $"/downloads/contracheques/{empresaId}/{ano}/{mes}/{trabalhadorId}";
+
+    protected override async Task OnInitializedAsync() =>
+        empresas = (await EmpresaRepository.GetAllAsync()).OrderBy(x => x.RazaoSocial).ToArray();
+
+    private async Task CarregarAsync()
+    {
+        carregando = true;
+        mensagem = null;
+        trabalhadorId = 0;
+        try
+        {
+            espelho = await FolhaRepository.GetEspelhoAsync(empresaId, ano, mes);
+            if (espelho is null)
+                mensagem = "Nenhuma folha importada para a competência selecionada.";
+        }
+        catch (Exception ex)
+        {
+            espelho = null;
+            mensagem = $"Não foi possível carregar o espelho: {ex.Message}";
+        }
+        finally
+        {
+            carregando = false;
+        }
+    }
+
+    private async Task ImprimirAsync() => await JS.InvokeVoidAsync("print");
+    private string ClasseModo(bool contracheques) => exibirContracheques == contracheques ? "active" : string.Empty;
+    private static string Moeda(decimal valor) => valor.ToString("C2", CultureInfo.GetCultureInfo("pt-BR"));
+    private static string Numero(decimal valor) => valor.ToString("N2", CultureInfo.GetCultureInfo("pt-BR"));
+    private static string Referencia(decimal valor) => valor == 0 ? string.Empty : valor.ToString("N2", CultureInfo.GetCultureInfo("pt-BR"));
+    private static string NomeMes(int valor) => CultureInfo.GetCultureInfo("pt-BR").DateTimeFormat.GetMonthName(valor);
+    private static string NomeTipo(int tipo) => tipo switch { 1 => "Provento", -1 => "Desconto", _ => "Informativo" };
+    private static string ClasseTipo(int tipo) => tipo switch { 1 => "earning", -1 => "deduction", _ => "info" };
+    private static string FormatarCnpj(string? cnpj)
+    {
+        var digitos = new string((cnpj ?? string.Empty).Where(char.IsDigit).ToArray());
+        return digitos.Length == 14
+            ? Convert.ToUInt64(digitos).ToString(@"00\.000\.000\/0000\-00")
+            : cnpj ?? string.Empty;
+    }
 }

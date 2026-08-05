@@ -21,6 +21,7 @@ builder.Services.AddScoped<ICfopExcelService, CfopExcelService>();
 builder.Services.AddScoped<IIcmsApuracaoPdfService, IcmsApuracaoPdfService>();
 builder.Services.AddScoped<IGuiaIcmsPdfLeituraService, GuiaIcmsPdfLeituraService>();
 builder.Services.AddScoped<IFolhaFortesImportService, FolhaFortesImportService>();
+builder.Services.AddScoped<IContrachequePdfService, ContrachequePdfService>();
 builder.Services.AddScoped<IPreAnaliseFortesFiscalService, PreAnaliseFortesFiscalService>();
 builder.Services.AddScoped<IIcmsFortesApuracaoService, IcmsFortesApuracaoService>();
 builder.Services.Configure<NfseNacionalOptions>(builder.Configuration.GetSection(NfseNacionalOptions.SectionName));
@@ -383,6 +384,32 @@ app.MapGet("/downloads/nfse-pdf/{chave}", async (
     catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested) { }
 
     return Results.Redirect($"https://www.nfse.gov.br/ConsultaPublica/?chave={Uri.EscapeDataString(chave)}&tpc=1");
+});
+
+app.MapGet("/downloads/contracheques/{empresaId:int}/{ano:int}/{mes:int}/{trabalhadorId:int}", async (
+    int empresaId,
+    int ano,
+    int mes,
+    int trabalhadorId,
+    IEmpresaRepository empresaRepository,
+    IFolhaPagamentoRepository folhaRepository,
+    IContrachequePdfService pdfService,
+    CancellationToken cancellationToken) =>
+{
+    var empresa = await empresaRepository.GetByIdAsync(empresaId, cancellationToken);
+    if (empresa is null)
+        return Results.NotFound("Empresa não encontrada.");
+
+    var folha = await folhaRepository.GetEspelhoAsync(empresaId, ano, mes, cancellationToken);
+    if (folha is null)
+        return Results.NotFound("Folha não encontrada para a competência selecionada.");
+
+    if (trabalhadorId != 0 && folha.Trabalhadores.All(x => x.Id != trabalhadorId))
+        return Results.NotFound("Colaborador não encontrado nesta folha.");
+
+    var pdf = pdfService.Gerar(empresa, folha, trabalhadorId);
+    var sufixo = trabalhadorId == 0 ? "todos" : trabalhadorId.ToString();
+    return Results.File(pdf, "application/pdf", $"contracheques_{ano}_{mes:00}_{sufixo}.pdf");
 });
 
 app.MapRazorComponents<App>()
