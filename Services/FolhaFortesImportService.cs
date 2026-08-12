@@ -32,9 +32,11 @@ public sealed class FolhaFortesImportService : IFolhaFortesImportService
 
         var connectionString = _configuration.GetConnectionString("FortesFolha");
         if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("A conexão FortesFolha não foi configurada.");
-        var senha = _configuration["FortesFolha:Password"] ?? Environment.GetEnvironmentVariable("FORTES_FOLHA_PASSWORD");
+        var senha = _configuration["FortesFolha:Password"];
+        if (string.IsNullOrWhiteSpace(senha)) senha = Environment.GetEnvironmentVariable("FORTES_FOLHA_PASSWORD");
         var builder = new FbConnectionStringBuilder(connectionString);
-        if (!string.IsNullOrWhiteSpace(senha)) builder.Password = senha;
+        if (string.IsNullOrWhiteSpace(senha)) throw new InvalidOperationException("A senha do banco do Fortes não foi configurada.");
+        builder.Password = senha;
 
         await using var fonte = new FbConnection(builder.ConnectionString);
         await fonte.OpenAsync(cancellationToken);

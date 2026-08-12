@@ -8,6 +8,7 @@
 @inject IEmpresaRepository EmpresaRepository
 @inject INfseRepository NfseRepository
 @inject INfseNacionalService NfseNacionalService
+@inject INfseFortesInssService NfseFortesInssService
 
 <PageTitle>Apuração ISS</PageTitle>
 
@@ -53,7 +54,7 @@
         @if (notaDetalhe is not null)
         {
             <section class="note-detail">
-                <header><div><span>Detalhamento da NFS-e</span><h2>Nº @(notaDetalhe.NumeroNota ?? "-")</h2></div><div style="display:flex;gap:.6rem;align-items:center"><a class="download-button" href="@ObterUrlPdf(notaDetalhe)" target="_blank">Baixar PDF</a><button type="button" @onclick="FecharDetalhe">Fechar</button></div></header>
+                <header><div><span>Detalhamento da NFS-e</span><h2>Nº @(notaDetalhe.NumeroNota ?? "-")</h2></div><div style="display:flex;gap:.6rem;align-items:center">@if (notaDetalhe.Tipo == "Prestada" && notaDetalhe.ValorInssRetido > 0) { <button class="fortes-inss-button" type="button" @onclick="() => PrepararInssFortes(notaDetalhe)">Preencher INSS no Fortes</button> }<a class="download-button" href="@ObterUrlPdf(notaDetalhe)" target="_blank">Baixar PDF</a><button type="button" @onclick="FecharDetalhe">Fechar</button></div></header>
                 <div class="detail-grid">
                     <div class="full"><span>Chave de acesso</span><strong class="key">@notaDetalhe.ChaveAcesso</strong></div>
                     <div><span>Emissão</span><strong>@notaDetalhe.DataEmissao.ToString("dd/MM/yyyy HH:mm")</strong></div>
@@ -79,10 +80,31 @@
             </section>
         }
 
+        @if (notaInssFortes is not null)
+        {
+            <section class="fortes-inss-panel">
+                <header>
+                    <div><span>Integração Fortes Fiscal</span><h2>Preencher INSS da NFS-e nº @(notaInssFortes.NumeroNota ?? "-")</h2></div>
+                    <button type="button" @onclick="CancelarInssFortes" disabled="@gravandoInssFortes">Fechar</button>
+                </header>
+                <p>A nota será localizada no Fortes pela chave eletrônica. Se já houver retenção informada, os valores atuais serão substituídos.</p>
+                <div class="fortes-inss-fields">
+                    <label><span>Base de cálculo</span><input type="number" min="0.01" step="0.01" @bind="baseInssFortes" /></label>
+                    <label><span>Alíquota calculada</span><strong>@AliquotaInssFortes.ToString("N4")%</strong></label>
+                    <label><span>INSS retido</span><input type="number" min="0.01" step="0.01" @bind="valorInssFortes" /></label>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(mensagemInssFortes)) { <div class="message @(erroInssFortes ? "error" : "success")">@mensagemInssFortes</div> }
+                <div class="fortes-inss-actions">
+                    <button class="secondary-button" type="button" @onclick="CancelarInssFortes" disabled="@gravandoInssFortes">Cancelar</button>
+                    <button class="fortes-confirm-button" type="button" @onclick="PreencherInssFortesAsync" disabled="@(gravandoInssFortes || baseInssFortes <= 0 || valorInssFortes <= 0)">@(gravandoInssFortes ? "Gravando..." : "Confirmar e gravar no Fortes")</button>
+                </div>
+            </section>
+        }
+
         <section class="notes-section">
             <header><div><h2>Serviços prestados</h2><span>@apuracao.QuantidadePrestadas NFS-e</span></div><div class="section-actions"><strong>@Moeda(apuracao.ValorServicosPrestados)</strong>@if (apuracao.QuantidadePrestadas > 0) { <a class="download-button" href="@($"/downloads/nfse-xml/prestadas/{empresaId}/{ano}/{mes}")">Baixar XMLs (.zip)</a> }</div></header>
-            <div class="table-wrap"><table><thead><tr><th>Número</th><th>Emissão</th><th>Tomador</th><th>CNPJ tomador</th><th>Serviço</th><th class="number">Valor</th><th class="number">ISS retido</th><th class="number">PIS</th><th class="number">Cofins</th><th class="number">IRRF</th><th class="number">CSLL</th><th class="number">INSS</th><th class="number">Total retido</th><th>PDF</th></tr></thead>
-            <tbody>@foreach(var n in apuracao.Notas.Where(n=>n.Tipo=="Prestada")){<tr><td><button class="note-link" type="button" @onclick="() => AbrirDetalhe(n)">@(n.NumeroNota ?? "Ver NFS-e")</button></td><td>@n.DataEmissao.ToString("dd/MM/yyyy")</td><td>@(n.NomeTomador ?? "-")</td><td>@(string.IsNullOrWhiteSpace(n.CnpjTomador) ? "-" : n.CnpjTomador)</td><td>@n.CodigoServico</td><td class="number">@Moeda(n.ValorServicos)</td><td class="number">@Moeda(n.IssRetido ? n.ValorIss : 0)</td><td class="number">@Moeda(n.ValorPisRetido)</td><td class="number">@Moeda(n.ValorCofinsRetido)</td><td class="number">@Moeda(n.ValorIrrfRetido)</td><td class="number">@Moeda(n.ValorCsllRetido)</td><td class="number">@Moeda(n.ValorInssRetido)</td><td class="number">@Moeda(n.TotalRetido)</td><td><a class="note-link" href="@ObterUrlPdf(n)" target="_blank">Baixar</a></td></tr>}</tbody></table></div>
+            <div class="table-wrap"><table><thead><tr><th>Número</th><th>Emissão</th><th>Tomador</th><th>CNPJ tomador</th><th>Serviço</th><th class="number">Valor</th><th class="number">ISS retido</th><th class="number">PIS</th><th class="number">Cofins</th><th class="number">IRRF</th><th class="number">CSLL</th><th class="number">INSS</th><th class="number">Total retido</th><th>Fortes</th><th>PDF</th></tr></thead>
+            <tbody>@foreach(var n in apuracao.Notas.Where(n=>n.Tipo=="Prestada")){<tr><td><button class="note-link" type="button" @onclick="() => AbrirDetalhe(n)">@(n.NumeroNota ?? "Ver NFS-e")</button></td><td>@n.DataEmissao.ToString("dd/MM/yyyy")</td><td>@(n.NomeTomador ?? "-")</td><td>@(string.IsNullOrWhiteSpace(n.CnpjTomador) ? "-" : n.CnpjTomador)</td><td>@n.CodigoServico</td><td class="number">@Moeda(n.ValorServicos)</td><td class="number">@Moeda(n.IssRetido ? n.ValorIss : 0)</td><td class="number">@Moeda(n.ValorPisRetido)</td><td class="number">@Moeda(n.ValorCofinsRetido)</td><td class="number">@Moeda(n.ValorIrrfRetido)</td><td class="number">@Moeda(n.ValorCsllRetido)</td><td class="number">@Moeda(n.ValorInssRetido)</td><td class="number">@Moeda(n.TotalRetido)</td><td><button class="fortes-inss-button" type="button" @onclick="() => PrepararInssFortes(n)" disabled="@(n.ValorInssRetido <= 0)" title="@(n.ValorInssRetido <= 0 ? "A NFS-e não possui INSS retido." : "Preencher o INSS desta nota no Fortes")">Preencher INSS</button></td><td><a class="note-link" href="@ObterUrlPdf(n)" target="_blank">Baixar</a></td></tr>}</tbody></table></div>
         </section>
 
         <section class="notes-section">
@@ -94,13 +116,13 @@
 </section>
 
 @code {
-    private IReadOnlyList<Empresa> empresas=[]; private IReadOnlyList<DateTime> competencias=[]; private IssApuracaoDto? apuracao; private IssNotaDto? notaDetalhe;
-    private int empresaId, mes=DateTime.Today.Month, ano=DateTime.Today.Year; private bool ocupado, sincronizando, erro; private string? mensagem;
+    private IReadOnlyList<Empresa> empresas=[]; private IReadOnlyList<DateTime> competencias=[]; private IssApuracaoDto? apuracao; private IssNotaDto? notaDetalhe; private IssNotaDto? notaInssFortes;
+    private int empresaId, mes=DateTime.Today.Month, ano=DateTime.Today.Year; private bool ocupado, sincronizando, erro, gravandoInssFortes, erroInssFortes; private string? mensagem, mensagemInssFortes; private decimal baseInssFortes, valorInssFortes;
     protected override async Task OnInitializedAsync()=>empresas=(await EmpresaRepository.GetAllAsync())
         .Where(e=>!string.IsNullOrWhiteSpace(e.CertificadoThumbprint))
         .OrderBy(e=>e.RazaoSocial)
         .ToArray();
-    private async Task CarregarAsync(){ocupado=true;erro=false;try{var e=empresas.First(x=>x.Id==empresaId);competencias=await NfseRepository.GetCompetenciasAsync(empresaId);apuracao=await NfseRepository.GetApuracaoAsync(empresaId,e.Cnpj,ano,mes);mensagem=apuracao.Notas.Count==0&&competencias.Count>0?"Não há notas nesta competência. Selecione abaixo uma competência disponível.":null;}catch(Exception ex){erro=true;mensagem=ex.Message;}finally{ocupado=false;}}
+    private async Task CarregarAsync(){CancelarInssFortes();ocupado=true;erro=false;try{var e=empresas.First(x=>x.Id==empresaId);competencias=await NfseRepository.GetCompetenciasAsync(empresaId);apuracao=await NfseRepository.GetApuracaoAsync(empresaId,e.Cnpj,ano,mes);mensagem=apuracao.Notas.Count==0&&competencias.Count>0?"Não há notas nesta competência. Selecione abaixo uma competência disponível.":null;}catch(Exception ex){erro=true;mensagem=ex.Message;}finally{ocupado=false;}}
     private async Task SincronizarAsync()
     {
         ocupado=sincronizando=true; erro=false;
@@ -157,6 +179,29 @@
     }
     private void AbrirDetalhe(IssNotaDto nota)=>notaDetalhe=nota;
     private void FecharDetalhe()=>notaDetalhe=null;
+    private decimal AliquotaInssFortes => baseInssFortes <= 0 ? 0 : valorInssFortes / baseInssFortes * 100m;
+    private void PrepararInssFortes(IssNotaDto nota)
+    {
+        notaInssFortes=nota; notaDetalhe=nota;
+        baseInssFortes=nota.BaseCalculo > 0 ? nota.BaseCalculo : nota.ValorServicos;
+        valorInssFortes=nota.ValorInssRetido;
+        mensagemInssFortes=null; erroInssFortes=false;
+    }
+    private void CancelarInssFortes(){if(gravandoInssFortes)return;notaInssFortes=null;mensagemInssFortes=null;erroInssFortes=false;}
+    private async Task PreencherInssFortesAsync()
+    {
+        if(notaInssFortes is null)return;
+        gravandoInssFortes=true; erroInssFortes=false; mensagemInssFortes=null;
+        try
+        {
+            var resultado=await NfseFortesInssService.PreencherAsync(empresaId,notaInssFortes.ChaveAcesso,baseInssFortes,valorInssFortes);
+            var itens=resultado.QuantidadeItens==1?"1 item de serviço":$"{resultado.QuantidadeItens} itens de serviço";
+            var sobrescrita=resultado.SobrescreveuValores?" Os valores anteriores foram substituídos.":string.Empty;
+            mensagemInssFortes=$"INSS preenchido na nota {resultado.NumeroNota} do Fortes ({itens}): base {Moeda(resultado.BaseCalculo)}, alíquota {resultado.Aliquota:N4}% e retenção {Moeda(resultado.ValorInssRetido)}.{sobrescrita}";
+        }
+        catch(Exception ex){erroInssFortes=true;mensagemInssFortes=ex.Message;}
+        finally{gravandoInssFortes=false;}
+    }
     private static string ObterUrlPdf(IssNotaDto nota)=>$"/downloads/nfse-pdf/{Uri.EscapeDataString(nota.ChaveAcesso)}";
     private static string Moeda(decimal v)=>v.ToString("C2",CultureInfo.GetCultureInfo("pt-BR"));
 }

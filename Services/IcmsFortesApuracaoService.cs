@@ -25,8 +25,10 @@ public sealed class IcmsFortesApuracaoService(IConfiguration configuration, IEmp
         var cs = configuration.GetConnectionString("FortesFolha")
             ?? throw new InvalidOperationException("A conexão com o Fortes não foi configurada.");
         var builder = new FbConnectionStringBuilder(cs);
-        var senha = configuration["FortesFolha:Password"] ?? Environment.GetEnvironmentVariable("FORTES_FOLHA_PASSWORD");
-        if (!string.IsNullOrWhiteSpace(senha)) builder.Password = senha;
+        var senha = configuration["FortesFolha:Password"];
+        if (string.IsNullOrWhiteSpace(senha)) senha = Environment.GetEnvironmentVariable("FORTES_FOLHA_PASSWORD");
+        if (string.IsNullOrWhiteSpace(senha)) throw new InvalidOperationException("A senha do banco do Fortes não foi configurada.");
+        builder.Password = senha;
 
         await using var connection = new FbConnection(builder.ConnectionString);
         await connection.OpenAsync(cancellationToken);
