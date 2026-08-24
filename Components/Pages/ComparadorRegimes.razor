@@ -1,0 +1,351 @@
+@page "/comparador-regimes"
+@rendermode InteractiveServer
+@using System.Globalization
+@using N3.AnalisadorFiscal.Web.Services
+@inject IFortesRegimeTributarioService FortesRegimeTributarioService
+
+<PageTitle>Comparador de regimes tributários</PageTitle>
+
+<section class="regime-page">
+    <header class="page-header">
+        <div>
+            <span class="eyebrow">Planejamento tributário</span>
+            <h1>Comparador de regimes tributários</h1>
+            <p>Reúna os dados econômicos da empresa e compare, em um único cenário, Simples Nacional, Lucro Presumido e Lucro Real.</p>
+        </div>
+        <div class="header-badge"><strong>Estimativa preliminar</strong><span>Premissas revisáveis</span></div>
+    </header>
+
+    <section class="source-panel">
+        <div class="source-heading">
+            <div><h2>Consultar diretamente no Fortes</h2><p>As empresas e os valores são lidos do banco Firebird do Fortes, sem depender de SPED ou folha previamente importados no Analisador.</p></div>
+        </div>
+        <div class="source-fields">
+            <label class="company-field"><span>Empresa do cadastro Fortes</span><select @bind="codigoEmpresaFortes"><option value="">Preenchimento manual</option>@foreach (var empresa in empresas) { <option value="@empresa.Codigo">@empresa.RazaoSocial · código @empresa.Codigo · @FormatarCnpj(empresa.Cnpj)</option> }</select></label>
+            <label><span>Ano-base</span><input type="number" min="2020" max="2100" @bind="ano" @bind:event="oninput" /></label>
+            <button type="button" class="secondary-button" @onclick="CarregarDadosAsync" disabled="@(carregando || string.IsNullOrWhiteSpace(codigoEmpresaFortes))">@(carregando ? "Consultando..." : "Consultar Fortes")</button>
+            <button type="button" class="ghost-button" @onclick="CarregarExemplo" disabled="@carregando">Usar exemplo</button>
+        </div>
+        @if (!string.IsNullOrWhiteSpace(mensagem)) { <div class="message @(erro ? "error" : "success")">@mensagem</div> }
+    </section>
+
+    <div class="input-layout">
+        <section class="input-card">
+            <header><span class="step">1</span><div><h2>Receita e atividade</h2><p>Valores anuais projetados</p></div></header>
+            <div class="field-grid">
+                <label><span>Receita de mercadorias</span><div class="money-input"><i>R$</i><input type="number" min="0" step="1000" @bind="cenario.ReceitaMercadorias" /></div></label>
+                <label><span>Receita de serviços</span><div class="money-input"><i>R$</i><input type="number" min="0" step="1000" @bind="cenario.ReceitaServicos" /></div></label>
+                <label><span>Receita bruta dos últimos 12 meses (RBT12)</span><div class="money-input"><i>R$</i><input type="number" min="0" step="1000" @bind="cenario.ReceitaBruta12Meses" /></div><small>Base das faixas do Simples; se ficar zerada, será usada a receita projetada.</small></label>
+                <label><span>Operação com mercadorias</span><select @bind="cenario.TipoMercadoria"><option value="@TipoOperacaoMercadoria.Comercio">Comércio · Anexo I</option><option value="@TipoOperacaoMercadoria.Industria">Indústria · Anexo II</option></select></label>
+                <label class="full"><span>Tratamento dos serviços no Simples</span><select @bind="cenario.EnquadramentoServico"><option value="@EnquadramentoServicoSimples.FatorR">Atividade sujeita ao fator R · Anexo III ou V</option><option value="@EnquadramentoServicoSimples.AnexoIII">Serviço diretamente no Anexo III</option><option value="@EnquadramentoServicoSimples.AnexoIV">Serviço no Anexo IV · CPP fora do DAS</option><option value="@EnquadramentoServicoSimples.AnexoV">Serviço diretamente no Anexo V</option></select></label>
+            </div>
+        </section>
+
+        <section class="input-card">
+            <header><span class="step">2</span><div><h2>Folha, custos e resultado</h2><p>Dados que mudam a decisão</p></div></header>
+            <div class="field-grid">
+                <label><span>Folha bruta + pró-labore anual</span><div class="money-input"><i>R$</i><input type="number" min="0" step="1000" @bind="cenario.Folha12Meses" /></div><small>Usada como despesa na projeção do Lucro Real.</small></label>
+                <label><span>Folha para o fator R</span><div class="money-input"><i>R$</i><input type="number" min="0" step="1000" @bind="cenario.FolhaFatorR12Meses" /></div><small>Inclua os valores que integram a FS12, como encargos e FGTS aplicáveis.</small></label>
+                <label><span>Compras, mercadorias e insumos</span><div class="money-input"><i>R$</i><input type="number" min="0" step="1000" @bind="cenario.CustoMercadoriasInsumos" /></div></label>
+                <label><span>Outras despesas dedutíveis</span><div class="money-input"><i>R$</i><input type="number" min="0" step="1000" @bind="cenario.OutrasDespesasDedutiveis" /></div></label>
+                <label><span>Ajustes líquidos do Lucro Real</span><div class="money-input"><i>R$</i><input type="number" step="1000" @bind="cenario.AjustesLucroReal" /></div><small>Adições menos exclusões; pode ser negativo.</small></label>
+                <label><span>Encargos patronais fora do DAS</span><div class="percent-input"><input type="number" min="0" max="100" step="0.1" @bind="cenario.AliquotaEncargosPatronais" /><i>%</i></div><small>CPP, RAT/FAP e terceiros, conforme a realidade da empresa.</small></label>
+            </div>
+        </section>
+
+        <section class="input-card">
+            <header><span class="step">3</span><div><h2>Débitos e créditos</h2><p>Impacto das compras na carga tributária</p></div></header>
+            <div class="field-grid">
+                <label><span>Alíquota de ICMS nas saídas</span><div class="percent-input"><input type="number" min="0" max="100" step="0.01" @bind="cenario.AliquotaIcmsDebito" /><i>%</i></div><small>Ao consultar o Fortes, a simulação usa 20%.</small></label>
+                <label><span>Alíquota média do crédito nas entradas</span><div class="percent-input"><input type="number" min="0" max="100" step="0.01" @bind="cenario.AliquotaIcmsCreditoPotencial" /><i>%</i></div><small>No Fortes, é calculada pela UF do participante: interna 20%, Nordeste 12% e Sul/Sudeste 7%.</small></label>
+                <label><span>Crédito anual de ICMS calculado</span><div class="money-input"><i>R$</i><input type="number" min="0" step="100" @bind="cenario.CreditoIcms" /></div><small>Este valor reduz o débito no Lucro Presumido e no Lucro Real.</small></label>
+                <label><span>Alíquota efetiva de ISS</span><div class="percent-input"><input type="number" min="0" max="100" step="0.01" @bind="cenario.AliquotaIss" /><i>%</i></div></label>
+                <label><span>Base anual apta a crédito de PIS/Cofins</span><div class="money-input"><i>R$</i><input type="number" min="0" step="1000" @bind="cenario.BaseCreditoPisCofins" /></div><small>Não é toda compra que gera crédito; informe somente a base elegível.</small></label>
+                <label><span>Receita tributada por PIS/Cofins</span><div class="percent-input"><input type="number" min="0" max="100" step="0.01" @bind="cenario.PercentualReceitaTributadaPisCofins" /><i>%</i></div><small>Ajuste para receitas monofásicas, alíquota zero ou tratamentos específicos.</small></label>
+                <label><span>Outros tributos anuais fora do DAS</span><div class="money-input"><i>R$</i><input type="number" min="0" step="100" @bind="cenario.TributosForaDas" /></div><small>ICMS-ST, antecipações e outros. Não inclua aqui o DIFAL das entradas, pois ele é calculado automaticamente.</small></label>
+            </div>
+        </section>
+
+        <section class="input-card eligibility-card">
+            <header><span class="step">4</span><div><h2>Impedimentos conhecidos</h2><p>Elegibilidade precisa vir antes da economia</p></div></header>
+            <div class="check-list">
+                <label><input type="checkbox" @bind="cenario.ImpedimentoSimples" /><span><strong>Existe impedimento ao Simples Nacional</strong><small>Quadro societário, atividade vedada, débitos ou outra condição conhecida.</small></span></label>
+                <label><input type="checkbox" @bind="cenario.ImpedimentoPresumido" /><span><strong>Existe impedimento ao Lucro Presumido</strong><small>Atividade obrigada ao Lucro Real ou outra restrição legal.</small></span></label>
+            </div>
+            <div class="action-box">
+                <div><strong>Pronto para comparar?</strong><span>Os resultados usam os valores exibidos acima.</span></div>
+                <button type="button" class="primary-button" @onclick="Calcular" disabled="@(cenario.ReceitaMercadorias + cenario.ReceitaServicos <= 0)">Calcular cenários</button>
+            </div>
+        </section>
+    </div>
+
+    @if (resultado is not null)
+    {
+        <section class="results-section">
+            <header class="results-header">
+                <div><span class="eyebrow">Resultado anual estimado</span><h2>Comparação da carga tributária</h2><p>Menor valor entre os regimes marcados como elegíveis, sem substituir a validação fiscal e societária.</p></div>
+                @if (resultado.MenorCarga is { } menor) { <div class="best-summary"><span>Menor carga no cenário</span><strong>@menor.Regime</strong><small>@Moeda(menor.Total) · @Percentual(menor.AliquotaEfetiva)</small></div> }
+            </header>
+
+            <div class="regime-cards">
+                @foreach (var regime in resultado.Regimes)
+                {
+                    var melhor = resultado.MenorCarga == regime;
+                    <article class="regime-card @(melhor ? "best" : null) @(!regime.Elegivel ? "ineligible" : null)">
+                        <header><div><span class="status">@(regime.Elegivel ? (melhor ? "Menor carga estimada" : "Cenário elegível") : "Não elegível")</span><h3>@regime.Regime</h3></div>@if (melhor) { <span class="trophy">★</span> }</header>
+                        <strong class="tax-total">@Moeda(regime.Total)</strong>
+                        <div class="effective-rate"><span>Alíquota efetiva total</span><strong>@Percentual(regime.AliquotaEfetiva)</strong></div>
+                        <div class="credit-row"><span>Créditos considerados</span><strong>@Moeda(regime.CreditosAproveitados)</strong></div>
+                        @if (regime.Elegivel && resultado.MenorCarga is { } melhorRegime && regime != melhorRegime) { <div class="difference">@Moeda(regime.Total - melhorRegime.Total) acima do menor cenário</div> }
+                        <p>@regime.Situacao</p>
+                    </article>
+                }
+            </div>
+
+            <section class="detail-card">
+                <header><div><h3>Comparação por imposto</h3><p>Valores anuais lado a lado. ICMS, PIS e Cofins já aparecem líquidos dos créditos considerados no cenário.</p></div></header>
+                <div class="table-wrap">
+                    <table class="comparison-table">
+                        <thead>
+                            <tr>
+                                <th>Imposto</th>
+                                @foreach (var regime in resultado.Regimes)
+                                {
+                                    <th class="regime-column @(!regime.Elegivel ? "ineligible-column" : null)">
+                                        <strong>@regime.Regime</strong>
+                                        <small>@(regime.Elegivel ? regime.Situacao : "Não elegível no cenário")</small>
+                                    </th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var linha in LinhasComparacao)
+                            {
+                                <tr>
+                                    <td class="tax-name"><strong>@linha.Nome</strong><small>@linha.Descricao</small></td>
+                                    @foreach (var regime in resultado.Regimes)
+                                    {
+                                        var valor = ValorTributo(regime, linha.Codigo);
+                                        var icmsNoSimples = regime.Regime == "Simples Nacional";
+                                        var icmsDentroDas = icmsNoSimples ? Math.Max(0m, valor - resultado.DifalIcmsSimples) : 0m;
+                                        <td class="tax-value @(!regime.Elegivel ? "ineligible-column" : null)">
+                                            <strong>@Moeda(valor)</strong>
+                                            <small>@PercentualSobreReceita(valor, resultado.ReceitaTotal) da receita</small>
+                                            @if (linha.Codigo == "ICMS")
+                                            {
+                                                <div class="icms-breakdown" style="display:grid;gap:.3rem;margin-top:.65rem;padding-top:.6rem;border-top:1px dashed #cbd5e1">
+                                                    <span style="display:flex;justify-content:space-between;gap:.65rem"><em style="font-style:normal;color:#64748b;text-align:left">Saídas de mercadorias</em><b>@Moeda(resultado.SaidasMercadorias)</b></span>
+                                                    <span style="display:flex;justify-content:space-between;gap:.65rem"><em style="font-style:normal;color:#64748b;text-align:left">Entradas/insumos</em><b>@Moeda(resultado.EntradasMercadorias)</b></span>
+                                                    <span style="display:flex;justify-content:space-between;gap:.65rem"><em style="font-style:normal;color:#64748b;text-align:left">Débito estimado · @PercentualInformado(resultado.AliquotaIcmsDebito)</em><b>@Moeda(resultado.DebitoIcmsEstimado)</b></span>
+                                                    @if (TemDetalhamentoIcmsPorUf(resultado))
+                                                    {
+                                                        @if (resultado.EntradasIcmsInternas != 0m) { <span style="display:flex;justify-content:space-between;gap:.65rem"><em style="font-style:normal;color:#64748b;text-align:left">Internas · 20% sobre @Moeda(resultado.EntradasIcmsInternas)</em><b>@Moeda(resultado.EntradasIcmsInternas * 20m / 100m)</b></span> }
+                                                        @if (resultado.EntradasIcmsNordeste != 0m) { <span style="display:flex;justify-content:space-between;gap:.65rem"><em style="font-style:normal;color:#64748b;text-align:left">Nordeste · 12% sobre @Moeda(resultado.EntradasIcmsNordeste)</em><b>@Moeda(resultado.EntradasIcmsNordeste * 12m / 100m)</b></span> }
+                                                        @if (resultado.EntradasIcmsSulSudeste != 0m) { <span style="display:flex;justify-content:space-between;gap:.65rem"><em style="font-style:normal;color:#64748b;text-align:left">Sul/Sudeste · 7% sobre @Moeda(resultado.EntradasIcmsSulSudeste)</em><b>@Moeda(resultado.EntradasIcmsSulSudeste * 7m / 100m)</b></span> }
+                                                        @if (resultado.EntradasIcmsOutrasInterestaduais != 0m) { <span style="display:flex;justify-content:space-between;gap:.65rem"><em style="font-style:normal;color:#64748b;text-align:left">Outras interestaduais · 12% sobre @Moeda(resultado.EntradasIcmsOutrasInterestaduais)</em><b>@Moeda(resultado.EntradasIcmsOutrasInterestaduais * 12m / 100m)</b></span> }
+                                                        @if (resultado.EntradasIcmsSemRegra != 0m) { <span style="display:flex;justify-content:space-between;gap:.65rem"><em style="font-style:normal;color:#64748b;text-align:left">Entradas sem regra de crédito definida</em><b>@Moeda(resultado.EntradasIcmsSemRegra)</b></span> }
+                                                        @if (resultado.AjustesCreditoIcms != 0m) { <span style="display:flex;justify-content:space-between;gap:.65rem"><em style="font-style:normal;color:#64748b;text-align:left">Ajustes de crédito do Fortes</em><b>@Moeda(resultado.AjustesCreditoIcms)</b></span> }
+                                                        <span style="display:flex;justify-content:space-between;gap:.65rem"><em style="font-style:normal;color:#64748b;text-align:left">Crédito calculado por UF</em><b>@Moeda(resultado.CreditoIcmsPotencial)</b></span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span style="display:flex;justify-content:space-between;gap:.65rem"><em style="font-style:normal;color:#64748b;text-align:left">Crédito potencial · @PercentualInformado(resultado.AliquotaIcmsCreditoPotencial)</em><b>@Moeda(resultado.CreditoIcmsPotencial)</b></span>
+                                                    }
+                                                    <span style="display:flex;justify-content:space-between;gap:.65rem"><em style="font-style:normal;color:#64748b;text-align:left">Crédito abatido</em><b>@Moeda(icmsNoSimples ? 0m : resultado.CreditoIcmsAproveitavel)</b></span>
+                                                    @if (icmsNoSimples)
+                                                    {
+                                                        @if (resultado.EntradasIcmsNordeste != 0m) { <span style="display:flex;justify-content:space-between;gap:.65rem"><em style="font-style:normal;color:#9a3412;text-align:left">DIFAL Nordeste · @PercentualInformado(Math.Max(0m, resultado.AliquotaIcmsDebito - 12m))</em><b>@Moeda(resultado.EntradasIcmsNordeste * Math.Max(0m, resultado.AliquotaIcmsDebito - 12m) / 100m)</b></span> }
+                                                        @if (resultado.EntradasIcmsSulSudeste != 0m) { <span style="display:flex;justify-content:space-between;gap:.65rem"><em style="font-style:normal;color:#9a3412;text-align:left">DIFAL Sul/Sudeste · @PercentualInformado(Math.Max(0m, resultado.AliquotaIcmsDebito - 7m))</em><b>@Moeda(resultado.EntradasIcmsSulSudeste * Math.Max(0m, resultado.AliquotaIcmsDebito - 7m) / 100m)</b></span> }
+                                                        @if (resultado.EntradasIcmsOutrasInterestaduais != 0m) { <span style="display:flex;justify-content:space-between;gap:.65rem"><em style="font-style:normal;color:#9a3412;text-align:left">DIFAL outras UFs · @PercentualInformado(Math.Max(0m, resultado.AliquotaIcmsDebito - 12m))</em><b>@Moeda(resultado.EntradasIcmsOutrasInterestaduais * Math.Max(0m, resultado.AliquotaIcmsDebito - 12m) / 100m)</b></span> }
+                                                        <div style="display:grid;gap:.2rem;margin-top:.65rem;padding:.65rem;border:1px solid #93c5fd;border-radius:8px;background:#eff6ff;text-align:left;white-space:normal">
+                                                            <span style="color:#1e40af;font-size:.68rem;font-weight:900;letter-spacing:.065em">ICMS DENTRO DO DAS</span><strong style="color:#1e40af;font-size:1rem">@Moeda(icmsDentroDas)</strong>
+                                                        </div>
+                                                        <div style="display:grid;gap:.2rem;padding:.65rem;border:1px solid #fdba74;border-radius:8px;background:#fff7ed;text-align:left;white-space:normal">
+                                                            <span style="color:#9a3412;font-size:.68rem;font-weight:900;letter-spacing:.065em">DIFAL DAS ENTRADAS — FORA DO DAS</span><strong style="color:#9a3412;font-size:1rem">@Moeda(resultado.DifalIcmsSimples)</strong>
+                                                        </div>
+                                                        <div style="display:grid;gap:.2rem;padding:.7rem;border:2px solid #22c55e;border-radius:8px;background:#f0fdf4;text-align:left;white-space:normal">
+                                                            <span style="color:#166534;font-size:.68rem;font-weight:900;letter-spacing:.065em">ICMS TOTAL A PAGAR</span><strong style="color:#14532d;font-size:1.15rem">@Moeda(valor)</strong><small style="margin:0;color:#166534;font-size:.68rem">ICMS dentro do DAS + DIFAL das entradas.</small>
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <div style="display:grid;gap:.2rem;margin-top:.65rem;padding:.7rem;border:1px solid #86efac;border-radius:8px;background:#f0fdf4;text-align:left;white-space:normal">
+                                                            <span style="color:#166534;font-size:.68rem;font-weight:900;letter-spacing:.065em">ICMS A PAGAR</span>
+                                                            <strong style="color:#14532d;font-size:1.15rem">@Moeda(valor)</strong>
+                                                            <small style="margin:0;color:#166534;font-size:.68rem;line-height:1.35">Débito de @Moeda(resultado.DebitoIcmsEstimado) menos crédito de @Moeda(resultado.CreditoIcmsAproveitavel).</small>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+                                        </td>
+                                    }
+                                </tr>
+                            }
+                            <tr class="comparison-total">
+                                <td><strong>Total anual</strong><small>Carga estimada somada</small></td>
+                                @foreach (var regime in resultado.Regimes)
+                                {
+                                    <td class="tax-value @(!regime.Elegivel ? "ineligible-column" : null)">
+                                        <strong>@Moeda(regime.Total)</strong>
+                                        <small>@Percentual(regime.AliquotaEfetiva) efetivos</small>
+                                    </td>
+                                }
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <p class="comparison-note">No Simples Nacional, o ICMS total reúne a parcela estimada dentro do DAS e o DIFAL das entradas interestaduais, calculado fora do DAS pela diferença para a alíquota interna. No Lucro Presumido e no Lucro Real, o ICMS corresponde ao débito menos o crédito calculado pela UF do participante.</p>
+            </section>
+
+            <div class="insight-grid">
+                <section class="facts-card">
+                    <header><h3>Fatos que mais influenciam a decisão</h3><span>@resultado.FatosRelevantes.Count ponto(s)</span></header>
+                    <ol>@foreach (var fato in resultado.FatosRelevantes) { <li>@fato</li> }</ol>
+                </section>
+                <section class="metrics-card">
+                    <h3>Indicadores do cenário</h3>
+                    <div><span>Receita anual</span><strong>@Moeda(resultado.ReceitaTotal)</strong></div>
+                    <div><span>Fator R</span><strong>@Percentual(resultado.FatorR)</strong></div>
+                    <div><span>Resultado antes de IRPJ/CSLL</span><strong class="@(resultado.LucroRealEstimado < 0 ? "negative" : null)">@Moeda(resultado.LucroRealEstimado)</strong></div>
+                </section>
+            </div>
+        </section>
+    }
+
+    <aside class="legal-note">
+        <strong>Escopo desta simulação</strong>
+        <p>É uma triagem gerencial. Não contempla todas as exceções por CNAE/NCM, benefícios estaduais ou municipais, retenções, regimes monofásicos, substituição tributária, sublimites, compensações de prejuízos, adicional de ICMS/ISS fora do Simples nem os efeitos completos da transição para CBS e IBS. Antes de optar, valide o cenário com a legislação do período e o responsável tributário.</p>
+        <div><a href="https://www8.receita.fazenda.gov.br/SimplesNacional/" target="_blank">Portal do Simples Nacional</a><a href="https://www.gov.br/receitafederal/pt-br/assuntos/orientacao-tributaria/tributos/IRPJ" target="_blank">IRPJ · Receita Federal</a><a href="https://www.gov.br/receitafederal/pt-br/assuntos/orientacao-tributaria/tributos/CSLL" target="_blank">CSLL · Receita Federal</a></div>
+    </aside>
+</section>
+
+@code {
+    private static readonly CultureInfo CulturaBrasil = CultureInfo.GetCultureInfo("pt-BR");
+    private static readonly LinhaComparacaoTributo[] LinhasComparacao =
+    [
+        new("IRPJ", "IRPJ", "Inclui o adicional de IRPJ, quando aplicável"),
+        new("CSLL", "CSLL", "Contribuição Social sobre o Lucro Líquido"),
+        new("PIS", "PIS/Pasep", "Valor líquido dos créditos no Lucro Real"),
+        new("COFINS", "Cofins", "Valor líquido dos créditos no Lucro Real"),
+        new("CPP", "CPP / encargos patronais", "Dentro do DAS ou calculada fora dele"),
+        new("ICMS", "ICMS", "DAS + DIFAL no Simples; débito menos crédito nos demais regimes"),
+        new("IPI", "IPI", "Aplicável à atividade industrial"),
+        new("ISS", "ISS", "Incidente sobre a receita de serviços"),
+        new("OUTROS", "Outros fora do DAS", "ICMS-ST, DIFAL, antecipações e similares")
+    ];
+    private IReadOnlyList<FortesEmpresaOpcao> empresas = [];
+    private CenarioTributario cenario = new();
+    private ResultadoComparacaoTributaria? resultado;
+    private string codigoEmpresaFortes = string.Empty;
+    private int ano = DateTime.Today.Year;
+    private bool carregando, erro;
+    private string? mensagem;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { empresas = await FortesRegimeTributarioService.ListarEmpresasAsync(); }
+        catch
+        {
+            empresas = [];
+            erro = true;
+            mensagem = "O cadastro de empresas do Fortes não pôde ser consultado agora. O preenchimento manual e o cenário de exemplo continuam disponíveis.";
+        }
+    }
+
+    private async Task CarregarDadosAsync()
+    {
+        if (string.IsNullOrWhiteSpace(codigoEmpresaFortes)) return;
+        carregando = true; erro = false; mensagem = null;
+        try
+        {
+            var dados = await FortesRegimeTributarioService.ConsultarAsync(codigoEmpresaFortes, ano);
+            var receitaTotal = dados.ReceitaMercadorias + dados.ReceitaServicos;
+            const decimal aliquotaDebitoIcms = 20m;
+            var aliquotaCreditoIcms = dados.ComprasMercadoriasInsumos > 0 && dados.CreditoIcms > 0
+                ? dados.CreditoIcms / dados.ComprasMercadoriasInsumos * 100m
+                : 0m;
+
+            cenario = new CenarioTributario
+            {
+                ReceitaMercadorias = dados.ReceitaMercadorias,
+                ReceitaServicos = dados.ReceitaServicos,
+                ReceitaBruta12Meses = receitaTotal,
+                CustoMercadoriasInsumos = dados.ComprasMercadoriasInsumos,
+                Folha12Meses = dados.FolhaBruta,
+                FolhaFatorR12Meses = dados.FolhaBruta + dados.InssPatronal + dados.Fgts,
+                CreditoIcms = dados.CreditoIcms,
+                EntradasIcmsInternas = dados.EntradasIcmsInternas,
+                EntradasIcmsNordeste = dados.EntradasIcmsNordeste,
+                EntradasIcmsSulSudeste = dados.EntradasIcmsSulSudeste,
+                EntradasIcmsOutrasInterestaduais = dados.EntradasIcmsOutrasInterestaduais,
+                EntradasIcmsSemRegra = dados.EntradasIcmsSemRegra,
+                AjustesCreditoIcms = dados.AjustesCreditoIcms,
+                BaseCreditoPisCofins = dados.BaseCreditoPisCofins,
+                AliquotaIcmsDebito = aliquotaDebitoIcms,
+                AliquotaIcmsCreditoPotencial = aliquotaCreditoIcms,
+                AliquotaIss = dados.ReceitaServicos > 0 ? dados.Iss / dados.ReceitaServicos * 100m : 5m,
+                AliquotaEncargosPatronais = dados.FolhaBruta > 0 && dados.InssPatronal > 0 ? dados.InssPatronal / dados.FolhaBruta * 100m : 28.8m,
+                PercentualReceitaTributadaPisCofins = dados.Empresa.OptanteSimples
+                    ? 100m
+                    : receitaTotal > 0 && dados.BaseReceitaPisCofins > 0
+                    ? Math.Min(100m, dados.BaseReceitaPisCofins / receitaTotal * 100m)
+                    : 100m,
+                TipoMercadoria = TipoOperacaoMercadoria.Comercio,
+                EnquadramentoServico = EnquadramentoServicoSimples.FatorR
+            };
+            Calcular();
+            var simples = dados.Empresa.OptanteSimples ? "O cadastro Fortes marca a empresa como optante pelo Simples." : "O cadastro Fortes não marca a empresa como optante pelo Simples.";
+            mensagem = $"Consulta direta concluída para {dados.Empresa.RazaoSocial}: {dados.DocumentosMercadorias} movimento(s) fiscais de mercadorias, {dados.DocumentosServicos} documento(s) de serviços e {dados.CompetenciasFolha} competência(s) de folha em {ano}. O débito de ICMS foi projetado a 20% e o crédito foi calculado pela UF dos participantes. {simples} Revise as premissas não existentes no Fortes, como outras despesas e impedimentos.";
+        }
+        catch (Exception ex) { erro = true; mensagem = $"Não foi possível carregar os dados: {ex.Message}"; }
+        finally { carregando = false; }
+    }
+
+    private void CarregarExemplo()
+    {
+        erro = false; mensagem = "Cenário demonstrativo carregado. Substitua os valores pelos dados reais da empresa.";
+        cenario = new CenarioTributario
+        {
+            ReceitaMercadorias = 900_000m, ReceitaServicos = 300_000m, ReceitaBruta12Meses = 1_200_000m,
+            Folha12Meses = 240_000m, FolhaFatorR12Meses = 300_000m, CustoMercadoriasInsumos = 510_000m,
+            OutrasDespesasDedutiveis = 150_000m, BaseCreditoPisCofins = 420_000m, CreditoIcms = 61_200m,
+            AliquotaIcmsDebito = 20m, AliquotaIcmsCreditoPotencial = 12m, AliquotaIss = 3m, AliquotaEncargosPatronais = 28.8m,
+            PercentualReceitaTributadaPisCofins = 100m, TipoMercadoria = TipoOperacaoMercadoria.Comercio,
+            EnquadramentoServico = EnquadramentoServicoSimples.FatorR
+        };
+        Calcular();
+    }
+
+    private void Calcular() => resultado = RegimeTributarioCalculator.Calcular(cenario);
+    private static bool TemDetalhamentoIcmsPorUf(ResultadoComparacaoTributaria valor)
+        => valor.EntradasIcmsInternas != 0m
+           || valor.EntradasIcmsNordeste != 0m
+           || valor.EntradasIcmsSulSudeste != 0m
+           || valor.EntradasIcmsOutrasInterestaduais != 0m
+           || valor.EntradasIcmsSemRegra != 0m;
+    private static decimal ValorTributo(ResultadoRegimeTributario regime, string categoria)
+        => regime.Tributos.Where(x => CategoriaTributo(x.Nome) == categoria).Sum(x => x.Valor);
+
+    private static string CategoriaTributo(string nome)
+    {
+        if (nome.Contains("IRPJ", StringComparison.OrdinalIgnoreCase)) return "IRPJ";
+        if (nome.Contains("CSLL", StringComparison.OrdinalIgnoreCase)) return "CSLL";
+        if (nome.StartsWith("PIS", StringComparison.OrdinalIgnoreCase)) return "PIS";
+        if (nome.StartsWith("Cofins", StringComparison.OrdinalIgnoreCase)) return "COFINS";
+        if (nome.Contains("patronais", StringComparison.OrdinalIgnoreCase) || nome.StartsWith("CPP", StringComparison.OrdinalIgnoreCase)) return "CPP";
+        if (nome.StartsWith("ICMS", StringComparison.OrdinalIgnoreCase)) return "ICMS";
+        if (nome.StartsWith("IPI", StringComparison.OrdinalIgnoreCase)) return "IPI";
+        if (nome.StartsWith("ISS", StringComparison.OrdinalIgnoreCase)) return "ISS";
+        if (nome.Contains("fora do DAS", StringComparison.OrdinalIgnoreCase)) return "OUTROS";
+        return nome;
+    }
+
+    private static string Moeda(decimal valor) => valor.ToString("C2", CulturaBrasil);
+    private static string Percentual(decimal valor) => valor.ToString("P2", CulturaBrasil);
+    private static string PercentualSobreReceita(decimal valor, decimal receita)
+        => Percentual(receita > 0 ? valor / receita : 0m);
+    private static string PercentualInformado(decimal valor)
+        => $"{valor.ToString("N2", CulturaBrasil)}%";
+    private static string FormatarCnpj(string valor) { var d = new string(valor.Where(char.IsDigit).ToArray()); return d.Length == 14 ? $"{d[..2]}.{d[2..5]}.{d[5..8]}/{d[8..12]}-{d[12..14]}" : valor; }
+    private sealed record LinhaComparacaoTributo(string Codigo, string Nome, string Descricao);
+}

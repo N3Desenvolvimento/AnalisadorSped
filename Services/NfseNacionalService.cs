@@ -236,7 +236,7 @@ public sealed class NfseNacionalService : INfseNacionalService
             throw new InvalidOperationException("Selecione um certificado no cadastro da empresa.");
         if (!File.Exists(_options.CertificadoPath))
             throw new InvalidOperationException("O certificado configurado para a NFS-e não foi encontrado.");
-        return new X509Certificate2(
+        return X509CertificateLoader.LoadPkcs12FromFile(
             _options.CertificadoPath, _options.CertificadoSenha,
             X509KeyStorageFlags.EphemeralKeySet | X509KeyStorageFlags.MachineKeySet);
     }

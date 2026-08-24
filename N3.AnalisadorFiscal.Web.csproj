@@ -4,10 +4,11 @@
     <ProjectReference Include="N3.AnalisadorFiscal.Domain\N3.AnalisadorFiscal.Domain.csproj" />
     <ProjectReference Include="N3.AnalisadorFiscal.Data\N3.AnalisadorFiscal.Data.csproj" />
     <ProjectReference Include="N3.AnalisadorFiscal.Sped\N3.AnalisadorFiscal.Sped.csproj" />
+    <ProjectReference Include="N3.AnalisadorFiscal.Recebimentos\N3.AnalisadorFiscal.Recebimentos.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>n3-analisador-fiscal-web</UserSecretsId>
@@ -18,6 +19,7 @@
     <Compile Remove="N3.AnalisadorFiscal.Domain\**\*.cs" />
     <Compile Remove="N3.AnalisadorFiscal.Data\**\*.cs" />
     <Compile Remove="N3.AnalisadorFiscal.Sped\**\*.cs" />
+    <Compile Remove="N3.AnalisadorFiscal.Recebimentos\**\*.cs" />
     <Compile Remove="tmp\**\*.cs" />
     <Content Remove="tmp\**" />
     <None Remove="tmp\**" />

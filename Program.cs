@@ -5,6 +5,7 @@ using System.Text;
 using N3.AnalisadorFiscal.Data.Dashboard;
 using N3.AnalisadorFiscal.Data.Repositories;
 using N3.AnalisadorFiscal.Sped;
+using N3.AnalisadorFiscal.Recebimentos;
 using N3.AnalisadorFiscal.Web.Components;
 using N3.AnalisadorFiscal.Web.Services;
 
@@ -16,6 +17,7 @@ builder.Services.AddRazorComponents()
 builder.Services.AddMudServices();
 builder.Services.AddDataAccess();
 builder.Services.AddSpedServices();
+builder.Services.AddRecebimentosServices();
 builder.Services.AddScoped<INotasEntradaExcelService, NotasEntradaExcelService>();
 builder.Services.AddScoped<ICfopExcelService, CfopExcelService>();
 builder.Services.AddScoped<IIcmsApuracaoPdfService, IcmsApuracaoPdfService>();
@@ -25,6 +27,8 @@ builder.Services.AddScoped<IContrachequePdfService, ContrachequePdfService>();
 builder.Services.AddScoped<IPreAnaliseFortesFiscalService, PreAnaliseFortesFiscalService>();
 builder.Services.AddScoped<IIcmsFortesApuracaoService, IcmsFortesApuracaoService>();
 builder.Services.AddScoped<INfseFortesInssService, NfseFortesInssService>();
+builder.Services.AddScoped<IRecebimentosFortesService, RecebimentosFortesService>();
+builder.Services.AddScoped<IFortesRegimeTributarioService, FortesRegimeTributarioService>();
 builder.Services.Configure<NfseNacionalOptions>(builder.Configuration.GetSection(NfseNacionalOptions.SectionName));
 builder.Services.AddScoped<INfseNacionalService, NfseNacionalService>();
 builder.Services.AddSingleton<ICertificateStoreService, CertificateStoreService>();
@@ -58,6 +62,7 @@ app.UseHttpsRedirection();
 
 app.UseStaticFiles();
 app.UseAntiforgery();
+app.MapStaticAssets();
 
 app.MapGet("/downloads/entradas-fornecedores/{empresaId:int}/{ano:int}/{mes:int}", async (
     int empresaId,

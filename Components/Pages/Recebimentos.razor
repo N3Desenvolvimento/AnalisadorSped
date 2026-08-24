@@ -1,0 +1,550 @@
+@page "/recebimentos"
+@rendermode InteractiveServer
+@using System.Globalization
+@using Microsoft.AspNetCore.Components.Forms
+@using N3.AnalisadorFiscal.Data.Dashboard
+@using N3.AnalisadorFiscal.Data.Repositories
+@using N3.AnalisadorFiscal.Domain.Entities
+@using N3.AnalisadorFiscal.Recebimentos.Services
+@using N3.AnalisadorFiscal.Web.Services
+@inject IEmpresaRepository EmpresaRepository
+@inject IRecebimentoRepository RecebimentoRepository
+@inject IRecebimentosExcelImportService ImportService
+@inject IRecebimentosFortesService RecebimentosFortesService
+@inject IWebHostEnvironment Environment
+
+<PageTitle>Recebimentos</PageTitle>
+
+<section class="receipts-page">
+    <header class="page-header">
+        <div>
+            <span class="eyebrow">Regime de caixa</span>
+            <h1>Recebimentos</h1>
+            <p>Centralize os arquivos mensais dos clientes, acompanhe o caixa por competência e prepare a conferência para o Fortes.</p>
+        </div>
+    </header>
+
+    <div class="rule-banner">
+        <strong>Regra aplicada</strong>
+        <span>O valor da coluna <b>VALOR RECEBIDO</b> é sempre considerado. Retenções são exibidas para análise, mas não alteram o caixa.</span>
+    </div>
+
+    <section class="panel import-panel">
+        <div class="section-heading">
+            <div><span>01</span><div><h2>Importar arquivo mensal</h2><p>Uma nova importação da mesma competência substitui a versão anterior.</p></div></div>
+        </div>
+        <div class="import-grid">
+            <label class="field company-field">
+                <span>Empresa</span>
+                <select @bind="empresaId" @bind:after="EmpresaAlteradaAsync" disabled="@importando">
+                    <option value="0">Selecione a empresa</option>
+                    @foreach (var empresa in empresas)
+                    {
+                        <option value="@empresa.Id">@empresa.RazaoSocial</option>
+                    }
+                </select>
+            </label>
+            <label class="field">
+                <span>Mês do arquivo</span>
+                <select @bind="mesArquivo" disabled="@importando">
+                    @foreach (var mes in Meses)
+                    {
+                        <option value="@mes.Numero">@mes.Nome</option>
+                    }
+                </select>
+            </label>
+            <label class="field">
+                <span>Ano do arquivo</span>
+                <select @bind="anoArquivo" disabled="@importando">
+                    @foreach (var ano in anos)
+                    {
+                        <option value="@ano">@ano</option>
+                    }
+                </select>
+            </label>
+            <label class="field file-field">
+                <span>Planilha Excel</span>
+                <InputFile OnChange="SelecionarArquivo" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled="@importando" />
+                @if (!string.IsNullOrWhiteSpace(nomeArquivo))
+                {
+                    <small>@nomeArquivo</small>
+                }
+            </label>
+            <button type="button" class="primary-button" @onclick="ImportarAsync"
+                    disabled="@(importando || empresaId == 0 || arquivoSelecionado is null)">
+                @(importando ? "Importando e conferindo..." : "Importar recebimentos")
+            </button>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(mensagem))
+        {
+            <div class="message @(erro ? "error" : "success")">@mensagem</div>
+        }
+
+        @if (resultado is not null)
+        {
+            <div class="import-result">
+                <article><span>Documentos</span><strong>@resultado.Documentos</strong></article>
+                <article><span>Recebimentos</span><strong>@resultado.Recebimentos</strong></article>
+                <article><span>Faturado no arquivo</span><strong>@Moeda(resultado.TotalFaturadoArquivo)</strong></article>
+                <article class="cash"><span>Recebido no arquivo</span><strong>@Moeda(resultado.TotalRecebidoArquivo)</strong></article>
+                <article><span>Retenções informadas</span><strong>@Moeda(resultado.TotalRetencoesArquivo)</strong></article>
+            </div>
+            @if (resultado.Competencias.Count > 0)
+            {
+                <div class="competence-chips">
+                    @foreach (var item in resultado.Competencias)
+                    {
+                        <span>@NomeMes(item.Mes)/@item.Ano: <b>@Moeda(item.ValorRecebido)</b> (@item.Quantidade)</span>
+                    }
+                </div>
+            }
+            @if (resultado.Mensagens.Count > 0)
+            {
+                <details class="alerts" open>
+                    <summary>@resultado.Mensagens.Count alerta(s) de conferência</summary>
+                    <ul>@foreach (var item in resultado.Mensagens) { <li>@item</li> }</ul>
+                </details>
+            }
+        }
+    </section>
+
+    <section class="panel analysis-panel">
+        <div class="section-heading analysis-heading">
+            <div><span>02</span><div><h2>Análise por competência</h2><p>Recebimentos são classificados pela data efetiva, mesmo quando aparecem em outro arquivo mensal.</p></div></div>
+            <div class="analysis-filters">
+                <label><span>Ano</span><select @bind="anoAnalise" @bind:after="CarregarAnaliseAsync" disabled="@(carregando || empresaId == 0)">@foreach (var ano in anos) { <option value="@ano">@ano</option> }</select></label>
+                <label><span>Mês</span><select @bind="mesAnalise" @bind:after="CarregarCompetenciaAsync" disabled="@(carregando || empresaId == 0)">@foreach (var mes in Meses) { <option value="@mes.Numero">@mes.Abreviacao</option> }</select></label>
+            </div>
+        </div>
+
+        @if (empresaId == 0)
+        {
+            <div class="empty-state">Selecione uma empresa para visualizar o histórico.</div>
+        }
+        else if (carregando)
+        {
+            <div class="empty-state">Carregando recebimentos...</div>
+        }
+        else
+        {
+            <div class="kpi-grid">
+                <article class="kpi primary"><span>Recebido em @NomeMes(mesAnalise)</span><strong>@Moeda(competencia.ValorRecebido)</strong><small>Valor usado no regime de caixa</small></article>
+                <article class="kpi"><span>Recebimentos</span><strong>@competencia.QuantidadeRecebimentos</strong><small>@competencia.QuantidadeClientes cliente(s)</small></article>
+                <article class="kpi"><span>Documentos emitidos</span><strong>@Moeda(competencia.ValorFaturadoEmitido)</strong><small>@competencia.QuantidadeDocumentos documento(s)</small></article>
+                <article class="kpi warning"><span>Retenções informadas</span><strong>@Moeda(competencia.ValorRetencoesInformadas)</strong><small>Não altera o valor recebido</small></article>
+            </div>
+
+            <div class="subsection">
+                <div class="subsection-title"><div><h3>Comparação mês a mês</h3><p>Valores deduplicados pela data real do recebimento.</p></div></div>
+                <div class="table-wrap monthly-wrap">
+                    <table class="data-table monthly-table">
+                        <thead><tr><th>Competência</th><th>Recebido</th><th>Recebimentos</th><th>Clientes</th><th>Variação</th></tr></thead>
+                        <tbody>
+                            @foreach (var item in ResumoCompleto)
+                            {
+                                var variacao = VariacaoMensal(item.Mes);
+                                <tr class="@(item.Mes == mesAnalise ? "selected-row" : null)" @onclick="() => SelecionarMesAsync(item.Mes)">
+                                    <td><button type="button" class="month-button">@NomeMes(item.Mes)</button></td>
+                                    <td class="money">@Moeda(item.ValorRecebido)</td>
+                                    <td>@item.QuantidadeRecebimentos</td>
+                                    <td>@item.QuantidadeClientes</td>
+                                    <td class="@(variacao is > 0 ? "positive" : variacao is < 0 ? "negative" : null)">@(variacao.HasValue ? variacao.Value.ToString("+0.0%;-0.0%;0.0%", CultureInfo.InvariantCulture) : "—")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="subsection">
+                <div class="subsection-title"><div><h3>Recebimentos de @NomeMes(mesAnalise)</h3><p>Detalhamento que deverá orientar as baixas posteriores no Fortes.</p></div><strong>@Moeda(recebimentos.Sum(x => x.ValorRecebido))</strong></div>
+                @if (recebimentos.Count == 0)
+                {
+                    <div class="empty-state compact">Nenhum recebimento encontrado nesta competência.</div>
+                }
+                else
+                {
+                    <div class="table-wrap">
+                        <table class="data-table detail-table">
+                            <thead><tr><th>Data</th><th>Cliente</th><th>Nota(s)</th><th>Origem</th><th>Situação</th><th>Valor recebido</th></tr></thead>
+                            <tbody>
+                                @foreach (var item in recebimentos)
+                                {
+                                    <tr>
+                                        <td>@item.DataRecebimento.ToString("dd/MM/yyyy")</td>
+                                        <td><strong>@item.Cliente</strong></td>
+                                        <td>@(item.NotasVinculadas ?? "—")</td>
+                                        <td title="Competência do arquivo: @item.CompetenciaArquivo.ToString("MM/yyyy")">@item.NomeArquivo</td>
+                                        <td>@if (item.RecebidoAntesEmissao) { <span class="status advance">Antecipado</span> } else { <span class="status regular">Regular</span> }</td>
+                                        <td class="money strong">@Moeda(item.ValorRecebido)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+
+            <div class="subsection">
+                <div class="subsection-title"><div><h3>Documentos emitidos em @NomeMes(mesAnalise)</h3><p>Retenções são apresentadas somente para conferência.</p></div></div>
+                @if (documentos.Count == 0)
+                {
+                    <div class="empty-state compact">Nenhum documento emitido nesta competência.</div>
+                }
+                else
+                {
+                    <div class="table-wrap">
+                        <table class="data-table detail-table">
+                            <thead><tr><th>Emissão</th><th>Cliente</th><th>Nota</th><th>Cód. serviço</th><th>Faturado</th><th>Retenções</th><th>Indicadores</th></tr></thead>
+                            <tbody>
+                                @foreach (var item in documentos)
+                                {
+                                    <tr>
+                                        <td>@(item.DataEmissao?.ToString("dd/MM/yyyy") ?? "—")</td>
+                                        <td><strong>@item.Cliente</strong></td>
+                                        <td>@(item.NumeroNota ?? "—")</td>
+                                        <td>@(item.CodigoServico ?? "—")</td>
+                                        <td class="money">@Moeda(item.ValorFaturado)</td>
+                                        <td class="money">@Moeda(item.ValorRetencoes)</td>
+                                        <td class="indicators"><span>@item.IndicadorRetencoesFederais</span><span>@item.IndicadorIss</span></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        }
+    </section>
+
+    @if (empresaId != 0)
+    {
+        <section class="panel fortes-panel">
+            <div class="section-heading fortes-heading">
+                <div><span>03</span><div><h2>Integração com o Fortes</h2><p>Confira faturas, descontos, títulos e baixas antes de gravar no Fiscal.</p></div></div>
+                <button type="button" class="secondary-button" @onclick="ConferirFortesAsync"
+                        disabled="@(conferindoFortes || aplicandoFortes || carregando)">
+                    @(conferindoFortes ? "Conferindo..." : "Conferir no Fortes")
+                </button>
+            </div>
+
+                <div class="fortes-rule">
+                    <strong>Regra de lançamento</strong>
+                    <span>Nas notas de serviço, inclusive da BV INFRA, fatura = valor integral da nota; desconto = valor da nota menos total recebido; título = valor recebido. PIS e COFINS retidos são obtidos da nota e levados ao título e à baixa. Para a Compass, exclusivamente, a base de PIS/COFINS corresponde a 95% do valor recebido. Na A&amp;E, as notas são comerciais e não têm desconto: fatura e título recebem o valor integral da nota, enquanto a baixa recebe apenas o valor efetivamente pago; eventual diferença permanece como saldo devedor e é informada na prévia. Cada baixa recebe o CFOP da nota, CST 01, receita e base do valor recebido, COFINS a 3% e PIS a 0,65%. A conferência preserva em cada baixa a data informada na planilha. Quando um recebimento cobre várias notas, ele é dividido pelos valores das linhas da planilha ou pelos saldos restantes no Fortes.</span>
+                </div>
+
+            @if (!string.IsNullOrWhiteSpace(mensagemFortes))
+            {
+                <div class="message @(erroFortes ? "error" : "success")">@mensagemFortes</div>
+            }
+
+            @if (previaFortes.Count == 0)
+            {
+                <div class="empty-state compact">Clique em <b>Conferir no Fortes</b> para preparar as notas do arquivo de @NomeMes(mesAnalise)/@anoAnalise.</div>
+            }
+            else
+            {
+                <div class="fortes-summary">
+                    <article><span>Notas conferidas</span><strong>@previaFortes.Count</strong></article>
+                    <article><span>Faturas a criar</span><strong>@previaFortes.Count(x => x.PodeAplicar && !x.FdfSeq.HasValue)</strong></article>
+                    <article><span>Baixas pendentes</span><strong>@previaFortes.Sum(x => x.QuantidadePendentes)</strong></article>
+                    <article><span>Bloqueios</span><strong>@previaFortes.Count(x => x.Situacao is "Bloqueado" or "Saldo insuficiente" or "Parcelas incompatíveis" or "Baixas divergentes")</strong></article>
+                </div>
+                <div class="table-wrap fortes-table-wrap">
+                    <table class="data-table fortes-table">
+                        <thead>
+                            <tr><th>Nota / cliente</th><th>CFOP</th><th>Vencimento</th><th>Valor da nota</th><th>Recebido nesta competência</th><th>Base PIS / COFINS</th><th>PIS / COFINS retidos</th><th>Desconto</th><th>Já baixado</th><th>Saldo do título</th><th>Situação / ação</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in previaFortes)
+                            {
+                                <tr>
+                                    <td><strong>@(string.IsNullOrWhiteSpace(item.NumeroNota) ? "Sem nota" : item.NumeroNota)</strong><small>@item.Cliente</small></td>
+                                    <td>@FormatarCfop(item.Cfop)</td>
+                                    <td>@item.Vencimento.ToString("dd/MM/yyyy")</td>
+                                    <td class="money">@Moeda(item.ValorNota)</td>
+                                    <td class="money strong">@Moeda(item.ValorRecebidoCompetencia)<small>@item.QuantidadeMovimentos movimento(s)</small></td>
+                                    <td class="money">@Moeda(item.ValorBasePisCofins)@if (item.PercentualReducaoBasePisCofins > 0) { <small>Redução de @item.PercentualReducaoBasePisCofins.ToString("N0")%</small> }</td>
+                                    <td class="money">@Moeda(item.ValorPisRetido)<small>COFINS @Moeda(item.ValorCofinsRetido)</small></td>
+                                    <td class="money">@Moeda(item.DescontoSugerido)</td>
+                                    <td class="money">@Moeda(item.TotalBaixadoFortes)</td>
+                                    <td class="money">@Moeda(item.SaldoFortes)</td>
+                                    <td><span class="status @ClasseSituacaoFortes(item)">@item.Situacao</span><small>@item.Acao</small>@if (!string.IsNullOrWhiteSpace(item.Alerta)) { <em>@item.Alerta</em> }</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                @if (previaFortes.Any(x => x.PodeAplicar))
+                {
+                    <div class="fortes-confirmation">
+                        <label><input type="checkbox" @bind="confirmarFortes" disabled="@aplicandoFortes" /> Conferi a prévia e autorizo criar somente as faturas e baixas marcadas como prontas.</label>
+                        <button type="button" class="primary-button apply-fortes" @onclick="AplicarFortesAsync"
+                                disabled="@(!confirmarFortes || aplicandoFortes || conferindoFortes)">
+                            @(aplicandoFortes ? "Gravando no Fortes..." : "Aplicar no Fortes")
+                        </button>
+                    </div>
+                }
+            }
+        </section>
+    }
+
+    @if (empresaId != 0 && importacoes.Count > 0)
+    {
+        <section class="panel history-panel">
+            <div class="section-heading"><div><span>04</span><div><h2>Histórico de arquivos</h2><p>Controle das versões mensais já recebidas.</p></div></div></div>
+            <div class="table-wrap">
+                <table class="data-table history-table">
+                    <thead><tr><th>Competência do arquivo</th><th>Arquivo</th><th>Importado em</th><th>Documentos</th><th>Recebimentos</th><th>Recebido no arquivo</th><th>Alertas</th></tr></thead>
+                    <tbody>@foreach (var item in importacoes) { <tr><td>@item.CompetenciaArquivo.ToString("MM/yyyy")</td><td><strong>@item.NomeArquivo</strong><small>Aba @item.NomeAba</small></td><td>@DataHoraLocal(item.ImportadoEm)</td><td>@item.QuantidadeDocumentos</td><td>@item.QuantidadeRecebimentos</td><td class="money">@Moeda(item.TotalRecebidoArquivo)</td><td><span class="alert-count @(item.QuantidadeAlertas > 0 ? "has-alert" : null)">@item.QuantidadeAlertas</span></td></tr> }</tbody>
+                </table>
+            </div>
+        </section>
+    }
+</section>
+
+@code {
+    private const long TamanhoMaximoArquivo = 25 * 1024 * 1024;
+    private static readonly (int Numero, string Nome, string Abreviacao)[] Meses =
+    [
+        (1, "Janeiro", "Jan"), (2, "Fevereiro", "Fev"), (3, "Março", "Mar"),
+        (4, "Abril", "Abr"), (5, "Maio", "Mai"), (6, "Junho", "Jun"),
+        (7, "Julho", "Jul"), (8, "Agosto", "Ago"), (9, "Setembro", "Set"),
+        (10, "Outubro", "Out"), (11, "Novembro", "Nov"), (12, "Dezembro", "Dez")
+    ];
+
+    private readonly IReadOnlyList<int> anos = Enumerable.Range(DateTime.Today.Year - 8, 10).Reverse().ToArray();
+    private IReadOnlyList<Empresa> empresas = [];
+    private IReadOnlyList<RecebimentoResumoMesDto> resumoMensal = [];
+    private IReadOnlyList<RecebimentoDetalheDto> recebimentos = [];
+    private IReadOnlyList<RecebimentoDocumentoDto> documentos = [];
+    private IReadOnlyList<RecebimentoImportacaoResumoDto> importacoes = [];
+    private IReadOnlyList<RecebimentoFortesPreviaItem> previaFortes = [];
+    private RecebimentoCompetenciaDto competencia = new();
+    private RecebimentosImportacaoResultado? resultado;
+    private IBrowserFile? arquivoSelecionado;
+    private string? nomeArquivo;
+    private string? mensagem;
+    private int empresaId;
+    private int mesArquivo = DateTime.Today.Month;
+    private int anoArquivo = DateTime.Today.Year;
+    private int mesAnalise = DateTime.Today.Month;
+    private int anoAnalise = DateTime.Today.Year;
+    private bool importando;
+    private bool carregando;
+    private bool erro;
+    private bool conferindoFortes;
+    private bool aplicandoFortes;
+    private bool confirmarFortes;
+    private bool erroFortes;
+    private string? mensagemFortes;
+
+    private IReadOnlyList<RecebimentoResumoMesDto> ResumoCompleto => Enumerable.Range(1, 12)
+        .Select(mes => resumoMensal.FirstOrDefault(x => x.Mes == mes) ?? new RecebimentoResumoMesDto { Mes = mes })
+        .ToArray();
+
+    protected override async Task OnInitializedAsync() =>
+        empresas = (await EmpresaRepository.GetAllAsync()).OrderBy(x => x.RazaoSocial).ToArray();
+
+    private Task SelecionarArquivo(InputFileChangeEventArgs e)
+    {
+        arquivoSelecionado = e.File;
+        nomeArquivo = arquivoSelecionado.Name;
+        resultado = null;
+        mensagem = null;
+        return Task.CompletedTask;
+    }
+
+    private async Task EmpresaAlteradaAsync()
+    {
+        resultado = null;
+        mensagem = null;
+        LimparPreviaFortes();
+        await CarregarAnaliseAsync();
+    }
+
+    private async Task ImportarAsync()
+    {
+        if (arquivoSelecionado is null || empresaId == 0)
+            return;
+        importando = true;
+        erro = false;
+        mensagem = null;
+        resultado = null;
+        var pastaTemporaria = Path.Combine(Environment.ContentRootPath, "App_Data", "Uploads", "recebimentos", Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(pastaTemporaria);
+            var caminho = Path.Combine(pastaTemporaria, Path.GetFileName(arquivoSelecionado.Name));
+            await using (var destino = File.Create(caminho))
+            await using (var origem = arquivoSelecionado.OpenReadStream(TamanhoMaximoArquivo))
+                await origem.CopyToAsync(destino);
+
+            resultado = await ImportService.ImportarAsync(empresaId, anoArquivo, mesArquivo, caminho);
+            mensagem = $"Arquivo {resultado.NomeArquivo} importado. A competência {mesArquivo:00}/{anoArquivo} foi atualizada.";
+            anoAnalise = anoArquivo;
+            mesAnalise = mesArquivo;
+            await CarregarAnaliseAsync();
+        }
+        catch (Exception ex)
+        {
+            erro = true;
+            mensagem = $"Não foi possível importar o arquivo: {ex.Message}";
+        }
+        finally
+        {
+            importando = false;
+            if (Directory.Exists(pastaTemporaria))
+                Directory.Delete(pastaTemporaria, recursive: true);
+        }
+    }
+
+    private async Task CarregarAnaliseAsync()
+    {
+        LimparPreviaFortes();
+        if (empresaId == 0)
+        {
+            resumoMensal = [];
+            recebimentos = [];
+            documentos = [];
+            importacoes = [];
+            competencia = new();
+            return;
+        }
+        carregando = true;
+        try
+        {
+            var resumoTask = RecebimentoRepository.GetResumoMensalAsync(empresaId, anoAnalise);
+            var importacoesTask = RecebimentoRepository.GetImportacoesAsync(empresaId);
+            await Task.WhenAll(resumoTask, importacoesTask);
+            resumoMensal = await resumoTask;
+            importacoes = await importacoesTask;
+            await CarregarCompetenciaInternaAsync();
+        }
+        catch (Exception ex)
+        {
+            erro = true;
+            mensagem = $"Não foi possível carregar os recebimentos: {ex.Message}";
+        }
+        finally
+        {
+            carregando = false;
+        }
+    }
+
+    private async Task CarregarCompetenciaAsync()
+    {
+        if (empresaId == 0)
+            return;
+        LimparPreviaFortes();
+        carregando = true;
+        try { await CarregarCompetenciaInternaAsync(); }
+        finally { carregando = false; }
+    }
+
+    private async Task CarregarCompetenciaInternaAsync()
+    {
+        var competenciaTask = RecebimentoRepository.GetCompetenciaAsync(empresaId, anoAnalise, mesAnalise);
+        var recebimentosTask = RecebimentoRepository.GetRecebimentosAsync(empresaId, anoAnalise, mesAnalise);
+        var documentosTask = RecebimentoRepository.GetDocumentosAsync(empresaId, anoAnalise, mesAnalise);
+        await Task.WhenAll(competenciaTask, recebimentosTask, documentosTask);
+        competencia = await competenciaTask;
+        recebimentos = await recebimentosTask;
+        documentos = await documentosTask;
+    }
+
+    private async Task SelecionarMesAsync(int mes)
+    {
+        mesAnalise = mes;
+        await CarregarCompetenciaAsync();
+    }
+
+    private async Task ConferirFortesAsync()
+    {
+        if (empresaId == 0)
+            return;
+        conferindoFortes = true;
+        erroFortes = false;
+        mensagemFortes = null;
+        confirmarFortes = false;
+        try
+        {
+            previaFortes = await RecebimentosFortesService.ConferirAsync(empresaId, anoAnalise, mesAnalise);
+            mensagemFortes = previaFortes.Count == 0
+                ? "Nenhum recebimento com data nesta competência foi encontrado para conferir."
+                : $"Conferência concluída: {previaFortes.Count} nota(s), {previaFortes.Sum(x => x.QuantidadePendentes)} baixa(s) pendente(s).";
+        }
+        catch (Exception ex)
+        {
+            erroFortes = true;
+            previaFortes = [];
+            mensagemFortes = $"Não foi possível conferir o Fortes: {ex.Message}";
+        }
+        finally
+        {
+            conferindoFortes = false;
+        }
+    }
+
+    private async Task AplicarFortesAsync()
+    {
+        if (!confirmarFortes || empresaId == 0)
+            return;
+        aplicandoFortes = true;
+        erroFortes = false;
+        mensagemFortes = null;
+        try
+        {
+            var aplicacao = await RecebimentosFortesService.AplicarAsync(empresaId, anoAnalise, mesAnalise);
+            mensagemFortes = $"Fortes atualizado: {aplicacao.FaturasCriadas} fatura(s), {aplicacao.BaixasCriadas} baixa(s) e {aplicacao.DetalhamentosAtualizados} detalhamento(s) de PIS/COFINS atualizados; {aplicacao.MovimentosJaExistentes} recebimento(s) já estavam lançados; {aplicacao.ItensIgnorados} item(ns) ficaram para conferência manual.";
+            previaFortes = await RecebimentosFortesService.ConferirAsync(empresaId, anoAnalise, mesAnalise);
+            confirmarFortes = false;
+        }
+        catch (Exception ex)
+        {
+            erroFortes = true;
+            mensagemFortes = $"Não foi possível aplicar os recebimentos no Fortes: {ex.Message}";
+        }
+        finally
+        {
+            aplicandoFortes = false;
+        }
+    }
+
+    private void LimparPreviaFortes()
+    {
+        previaFortes = [];
+        mensagemFortes = null;
+        erroFortes = false;
+        confirmarFortes = false;
+    }
+
+    private static string ClasseSituacaoFortes(RecebimentoFortesPreviaItem item) => item.Situacao switch
+    {
+        "Já lançado" or "Já considerado" or "Venda à vista" => "regular",
+        "Sem fatura" or "Fatura existente" or "Ajuste de fatura" or "Detalhamento pendente" => "ready",
+        _ => "blocked"
+    };
+
+    private static string FormatarCfop(string? cfop)
+    {
+        var digitos = new string((cfop ?? string.Empty).Where(char.IsDigit).ToArray());
+        return digitos.Length == 4 ? $"{digitos[0]}.{digitos[1..]}" : "—";
+    }
+
+    private decimal? VariacaoMensal(int mes)
+    {
+        if (mes <= 1)
+            return null;
+        var atual = resumoMensal.FirstOrDefault(x => x.Mes == mes)?.ValorRecebido ?? 0;
+        var anterior = resumoMensal.FirstOrDefault(x => x.Mes == mes - 1)?.ValorRecebido ?? 0;
+        return anterior == 0 ? null : (atual - anterior) / anterior;
+    }
+
+    private static string NomeMes(int mes) => Meses.First(x => x.Numero == mes).Nome;
+    private static string Moeda(decimal valor) => valor.ToString("C2", CultureInfo.GetCultureInfo("pt-BR"));
+    private static string DataHoraLocal(DateTime valor) =>
+        DateTime.SpecifyKind(valor, DateTimeKind.Utc).ToLocalTime().ToString("dd/MM/yyyy HH:mm");
+}
