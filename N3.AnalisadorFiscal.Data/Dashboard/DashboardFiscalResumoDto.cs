@@ -8,5 +8,6 @@ public sealed class DashboardFiscalResumoDto
     public decimal IcmsDebitado { get; set; }
     public decimal IcmsCreditado { get; set; }
     public decimal IcmsAntecipado { get; set; }
+    public decimal IcmsCreditoEstoque { get; set; }
     public decimal IcmsARecolher { get; set; }
 }

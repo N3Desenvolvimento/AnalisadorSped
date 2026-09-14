@@ -1,0 +1,470 @@
+@page "/faq"
+@rendermode InteractiveServer
+@using System.Globalization
+@using System.Text
+@using N3.AnalisadorFiscal.Data.Repositories
+@using N3.AnalisadorFiscal.Domain.Entities
+@inject IFaqRepository FaqRepository
+@inject IJSRuntime Js
+
+<PageTitle>Base de conhecimento</PageTitle>
+
+<section class="faq-page">
+    <header class="faq-hero">
+        <div>
+            <span class="eyebrow">Ajuda compartilhada</span>
+            <h1>Base de conhecimento</h1>
+            <p>Encontre respostas já utilizadas pela equipe ou registre uma nova solução para a próxima pessoa.</p>
+        </div>
+        <button class="primary-button" type="button" @onclick="NovoArtigo">
+            <span aria-hidden="true">＋</span> Adicionar informação
+        </button>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(mensagem))
+    {
+        <div class="notice @(mensagemErro ? "notice-error" : "notice-success")" role="status">
+            <span>@mensagem</span>
+            <button type="button" title="Fechar mensagem" @onclick="LimparMensagem">×</button>
+        </div>
+    }
+
+    <div class="summary-grid" aria-label="Resumo da base de conhecimento">
+        <div class="summary-card">
+            <strong>@artigos.Count(item => item.Publicado)</strong>
+            <span>respostas publicadas</span>
+        </div>
+        <div class="summary-card">
+            <strong>@Categorias.Count</strong>
+            <span>categorias</span>
+        </div>
+        <div class="summary-card">
+            <strong>@artigos.Count(item => !item.Publicado)</strong>
+            <span>rascunhos para revisar</span>
+        </div>
+    </div>
+
+    <div class="search-panel">
+        <label class="search-field">
+            <span>O que você precisa saber?</span>
+            <div class="search-input-wrap">
+                <span aria-hidden="true">⌕</span>
+                <input placeholder="Digite uma dúvida, palavra-chave ou assunto..."
+                       @bind="pesquisa" @bind:event="oninput" />
+            </div>
+        </label>
+        <label class="category-field">
+            <span>Categoria</span>
+            <select @bind="categoriaSelecionada">
+                <option value="">Todas as categorias</option>
+                @foreach (var categoria in Categorias)
+                {
+                    <option value="@categoria">@categoria</option>
+                }
+            </select>
+        </label>
+        <label class="draft-toggle">
+            <input type="checkbox" @bind="incluirRascunhos" />
+            <span>Incluir rascunhos</span>
+        </label>
+    </div>
+
+    @if (carregando)
+    {
+        <div class="state-card">Carregando a base de conhecimento...</div>
+    }
+    else if (ArtigosFiltrados.Count == 0)
+    {
+        <div class="state-card empty-state">
+            <strong>Nenhuma resposta encontrada</strong>
+            <p>Experimente outro termo ou transforme essa dúvida na próxima informação da base.</p>
+            <button type="button" class="secondary-button" @onclick="NovoArtigo">Cadastrar esta dúvida</button>
+        </div>
+    }
+    else
+    {
+        <div class="result-heading">
+            <span>@ArtigosFiltrados.Count resultado(s)</span>
+            @if (FiltrosAtivos)
+            {
+                <button type="button" @onclick="LimparFiltros">Limpar filtros</button>
+            }
+        </div>
+
+        <div class="faq-list">
+            @foreach (var artigo in ArtigosFiltrados)
+            {
+                var expandido = artigosAbertos.Contains(artigo.Id);
+                <article class="faq-card @(!artigo.Publicado ? "is-draft" : string.Empty)">
+                    <button type="button" class="faq-question" @onclick="() => AlternarArtigo(artigo.Id)"
+                            aria-expanded="@expandido">
+                        <span class="question-content">
+                            <span class="card-meta">
+                                <span class="category-badge">@artigo.Categoria</span>
+                                @if (!artigo.Publicado)
+                                {
+                                    <span class="draft-badge">Rascunho</span>
+                                }
+                                @if (!string.Equals(artigo.Origem, "Manual", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    <span class="source-badge">Origem: @artigo.Origem</span>
+                                }
+                            </span>
+                            <strong>@artigo.Pergunta</strong>
+                        </span>
+                        <span class="chevron" aria-hidden="true">⌄</span>
+                    </button>
+
+                    @if (expandido)
+                    {
+                        <div class="faq-answer">
+                            <div class="answer-text">@artigo.Resposta</div>
+
+                            @if (!string.IsNullOrWhiteSpace(artigo.PalavrasChave))
+                            {
+                                <div class="keywords"><strong>Palavras-chave:</strong> @artigo.PalavrasChave</div>
+                            }
+
+                            <div class="answer-details">
+                                <span>Atualizado em @FormatarData(artigo.AtualizadoEm)</span>
+                                @if (!string.IsNullOrWhiteSpace(artigo.Autor))
+                                {
+                                    <span>por @artigo.Autor</span>
+                                }
+                                @if (ObterUrlSegura(artigo.UrlOrigem) is { } url)
+                                {
+                                    <a href="@url" target="_blank" rel="noopener noreferrer">Abrir fonte original</a>
+                                }
+                            </div>
+
+                            <div class="answer-actions">
+                                <div class="feedback">
+                                    <span>Esta resposta ajudou?</span>
+                                    <button type="button" disabled="@avaliados.Contains(artigo.Id)"
+                                            @onclick="() => AvaliarAsync(artigo, true)">
+                                        Sim <small>@artigo.TotalUtil</small>
+                                    </button>
+                                    <button type="button" disabled="@avaliados.Contains(artigo.Id)"
+                                            @onclick="() => AvaliarAsync(artigo, false)">
+                                        Não <small>@artigo.TotalNaoUtil</small>
+                                    </button>
+                                </div>
+                                <div class="card-buttons">
+                                    <button type="button" @onclick="() => CopiarRespostaAsync(artigo)">Copiar resposta</button>
+                                    <button type="button" @onclick="() => EditarArtigo(artigo)">Editar</button>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </article>
+            }
+        </div>
+    }
+</section>
+
+@if (formularioAberto)
+{
+    <div class="modal-backdrop" @onclick="FecharFormulario">
+        <div class="faq-modal" role="dialog" aria-modal="true" aria-labelledby="faq-form-title"
+             @onclick:stopPropagation="true">
+            <header>
+                <div>
+                    <span class="eyebrow">Conhecimento da equipe</span>
+                    <h2 id="faq-form-title">@(edicao.Id == 0 ? "Adicionar informação" : "Editar informação")</h2>
+                </div>
+                <button class="close-button" type="button" title="Fechar" @onclick="FecharFormulario">×</button>
+            </header>
+
+            <form @onsubmit="SalvarAsync" @onsubmit:preventDefault="true">
+                <label class="full-field">
+                    <span>Pergunta <b>*</b></span>
+                    <input maxlength="500" placeholder="Ex.: Como corrigir um erro na importação do SPED?" @bind="edicao.Pergunta" />
+                </label>
+
+                <label class="full-field">
+                    <span>Resposta <b>*</b></span>
+                    <textarea rows="8" placeholder="Explique a solução em etapas simples..." @bind="edicao.Resposta"></textarea>
+                    <small>Use texto simples e remova dados pessoais ou informações específicas do cliente.</small>
+                </label>
+
+                <div class="form-grid">
+                    <label>
+                        <span>Categoria <b>*</b></span>
+                        <input maxlength="100" list="faq-category-options" placeholder="Ex.: SPED Fiscal" @bind="edicao.Categoria" />
+                        <datalist id="faq-category-options">
+                            @foreach (var categoria in Categorias)
+                            {
+                                <option value="@categoria"></option>
+                            }
+                        </datalist>
+                    </label>
+                    <label>
+                        <span>Quem registrou</span>
+                        <input maxlength="150" placeholder="Nome da pessoa ou equipe" @bind="edicao.Autor" />
+                    </label>
+                    <label class="full-field">
+                        <span>Palavras-chave</span>
+                        <input maxlength="500" placeholder="Separe os termos por vírgula" @bind="edicao.PalavrasChave" />
+                    </label>
+                    <label>
+                        <span>Origem</span>
+                        <select @bind="edicao.Origem">
+                            <option value="Manual">Cadastro manual</option>
+                            <option value="Email">E-mail</option>
+                            <option value="Chamado">Chamado</option>
+                            <option value="Outro">Outra fonte</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>Referência da origem</span>
+                        <input maxlength="300" placeholder="Nº do chamado ou ID do e-mail" @bind="edicao.ReferenciaExterna" />
+                    </label>
+                    <label class="full-field">
+                        <span>Link da origem</span>
+                        <input type="url" maxlength="1000" placeholder="https://..." @bind="edicao.UrlOrigem" />
+                    </label>
+                </div>
+
+                <label class="publish-toggle">
+                    <input type="checkbox" @bind="edicao.Publicado" />
+                    <span>
+                        <strong>Publicar esta resposta</strong>
+                        <small>Desmarque para salvar como rascunho e revisar depois.</small>
+                    </span>
+                </label>
+
+                @if (!string.IsNullOrWhiteSpace(erroFormulario))
+                {
+                    <div class="form-error">@erroFormulario</div>
+                }
+
+                <footer>
+                    <button type="button" class="secondary-button" disabled="@salvando" @onclick="FecharFormulario">Cancelar</button>
+                    <button type="submit" class="primary-button" disabled="@salvando">
+                        @(salvando ? "Salvando..." : edicao.Publicado ? "Salvar e publicar" : "Salvar rascunho")
+                    </button>
+                </footer>
+            </form>
+        </div>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<FaqArtigo> artigos = [];
+    private readonly HashSet<int> artigosAbertos = [];
+    private readonly HashSet<int> avaliados = [];
+    private FaqArtigo edicao = new();
+    private string pesquisa = string.Empty;
+    private string categoriaSelecionada = string.Empty;
+    private string? mensagem;
+    private string? erroFormulario;
+    private bool carregando = true;
+    private bool salvando;
+    private bool incluirRascunhos;
+    private bool formularioAberto;
+    private bool mensagemErro;
+
+    private IReadOnlyList<string> Categorias => artigos
+        .Select(item => item.Categoria.Trim())
+        .Where(item => item.Length > 0)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(item => item)
+        .ToList();
+
+    private IReadOnlyList<FaqArtigo> ArtigosFiltrados
+    {
+        get
+        {
+            var termo = Normalizar(pesquisa);
+            return artigos
+                .Where(item => incluirRascunhos || item.Publicado)
+                .Where(item => string.IsNullOrWhiteSpace(categoriaSelecionada) ||
+                    string.Equals(item.Categoria, categoriaSelecionada, StringComparison.OrdinalIgnoreCase))
+                .Where(item => termo.Length == 0 || Normalizar(
+                    $"{item.Pergunta} {item.Resposta} {item.Categoria} {item.PalavrasChave}").Contains(termo, StringComparison.Ordinal))
+                .OrderByDescending(item => item.Publicado)
+                .ThenByDescending(item => item.AtualizadoEm)
+                .ToList();
+        }
+    }
+
+    private bool FiltrosAtivos => !string.IsNullOrWhiteSpace(pesquisa) ||
+        !string.IsNullOrWhiteSpace(categoriaSelecionada) || incluirRascunhos;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CarregarAsync();
+        carregando = false;
+    }
+
+    private async Task CarregarAsync()
+    {
+        try
+        {
+            artigos = await FaqRepository.GetAllAsync();
+        }
+        catch (Exception ex)
+        {
+            mensagemErro = true;
+            mensagem = $"Não foi possível carregar a base de conhecimento: {ex.Message}";
+        }
+    }
+
+    private void NovoArtigo()
+    {
+        edicao = new FaqArtigo { Categoria = "Geral", Origem = "Manual", Publicado = true };
+        erroFormulario = null;
+        formularioAberto = true;
+    }
+
+    private void EditarArtigo(FaqArtigo artigo)
+    {
+        edicao = new FaqArtigo
+        {
+            Id = artigo.Id,
+            Pergunta = artigo.Pergunta,
+            Resposta = artigo.Resposta,
+            Categoria = artigo.Categoria,
+            PalavrasChave = artigo.PalavrasChave,
+            Publicado = artigo.Publicado,
+            Ativo = artigo.Ativo,
+            Origem = artigo.Origem,
+            ReferenciaExterna = artigo.ReferenciaExterna,
+            UrlOrigem = artigo.UrlOrigem,
+            Autor = artigo.Autor
+        };
+        erroFormulario = null;
+        formularioAberto = true;
+    }
+
+    private async Task SalvarAsync()
+    {
+        erroFormulario = null;
+        edicao.Pergunta = edicao.Pergunta.Trim();
+        edicao.Resposta = edicao.Resposta.Trim();
+        edicao.Categoria = edicao.Categoria.Trim();
+        edicao.PalavrasChave = Limpar(edicao.PalavrasChave);
+        edicao.Autor = Limpar(edicao.Autor);
+        edicao.ReferenciaExterna = Limpar(edicao.ReferenciaExterna);
+        edicao.UrlOrigem = Limpar(edicao.UrlOrigem);
+
+        if (edicao.Pergunta.Length == 0)
+        {
+            erroFormulario = "Informe a pergunta.";
+            return;
+        }
+        if (edicao.Resposta.Length == 0)
+        {
+            erroFormulario = "Informe a resposta.";
+            return;
+        }
+        if (edicao.Categoria.Length == 0)
+        {
+            erroFormulario = "Informe uma categoria.";
+            return;
+        }
+        if (edicao.UrlOrigem is not null && ObterUrlSegura(edicao.UrlOrigem) is null)
+        {
+            erroFormulario = "O link da origem deve começar com http:// ou https://.";
+            return;
+        }
+
+        salvando = true;
+        try
+        {
+            if (edicao.Id == 0)
+                edicao.Id = await FaqRepository.InsertAsync(edicao);
+            else
+                await FaqRepository.UpdateAsync(edicao);
+
+            await CarregarAsync();
+            artigosAbertos.Add(edicao.Id);
+            formularioAberto = false;
+            mensagemErro = false;
+            mensagem = edicao.Publicado
+                ? "Informação salva e publicada com sucesso."
+                : "Rascunho salvo com sucesso.";
+        }
+        catch (Exception ex)
+        {
+            erroFormulario = $"Não foi possível salvar: {ex.Message}";
+        }
+        finally
+        {
+            salvando = false;
+        }
+    }
+
+    private async Task AvaliarAsync(FaqArtigo artigo, bool foiUtil)
+    {
+        if (!avaliados.Add(artigo.Id)) return;
+        try
+        {
+            await FaqRepository.RegistrarAvaliacaoAsync(artigo.Id, foiUtil);
+            if (foiUtil) artigo.TotalUtil++; else artigo.TotalNaoUtil++;
+        }
+        catch (Exception ex)
+        {
+            avaliados.Remove(artigo.Id);
+            mensagemErro = true;
+            mensagem = $"Não foi possível registrar a avaliação: {ex.Message}";
+        }
+    }
+
+    private async Task CopiarRespostaAsync(FaqArtigo artigo)
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("navigator.clipboard.writeText", artigo.Resposta);
+            mensagemErro = false;
+            mensagem = "Resposta copiada para a área de transferência.";
+        }
+        catch
+        {
+            mensagemErro = true;
+            mensagem = "O navegador não permitiu copiar a resposta automaticamente.";
+        }
+    }
+
+    private void AlternarArtigo(int id)
+    {
+        if (!artigosAbertos.Add(id)) artigosAbertos.Remove(id);
+    }
+
+    private void LimparFiltros()
+    {
+        pesquisa = string.Empty;
+        categoriaSelecionada = string.Empty;
+        incluirRascunhos = false;
+    }
+
+    private void FecharFormulario()
+    {
+        if (!salvando) formularioAberto = false;
+    }
+
+    private void LimparMensagem() => mensagem = null;
+
+    private static string? Limpar(string? valor) => string.IsNullOrWhiteSpace(valor) ? null : valor.Trim();
+
+    private static string FormatarData(DateTime data)
+    {
+        var utc = data.Kind == DateTimeKind.Utc ? data : DateTime.SpecifyKind(data, DateTimeKind.Utc);
+        return utc.ToLocalTime().ToString("dd/MM/yyyy 'às' HH:mm");
+    }
+
+    private static string Normalizar(string? valor)
+    {
+        if (string.IsNullOrWhiteSpace(valor)) return string.Empty;
+        return new string(valor.Normalize(NormalizationForm.FormD)
+            .Where(caractere => CharUnicodeInfo.GetUnicodeCategory(caractere) != UnicodeCategory.NonSpacingMark)
+            .Select(char.ToUpperInvariant)
+            .ToArray());
+    }
+
+    private static string? ObterUrlSegura(string? valor)
+    {
+        if (!Uri.TryCreate(valor, UriKind.Absolute, out var uri)) return null;
+        return uri.Scheme is "http" or "https" ? uri.AbsoluteUri : null;
+    }
+}

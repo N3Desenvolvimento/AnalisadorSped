@@ -56,6 +56,7 @@ public sealed class IcmsApuracaoPdfService : IIcmsApuracaoPdfService
                 ["ICMS debitado", FormatarMoeda(resumo.IcmsDebitado)],
                 ["ICMS creditado", FormatarMoeda(resumo.IcmsCreditado)],
                 ["ICMS antecipado", FormatarMoeda(resumo.IcmsAntecipado)],
+                ["Credito de estoque (RN022037)", FormatarMoeda(resumo.IcmsCreditoEstoque)],
                 ["ICMS a recolher", FormatarMoeda(resumo.IcmsARecolher)]
             ],
             [260, 180]);
@@ -83,7 +84,7 @@ public sealed class IcmsApuracaoPdfService : IIcmsApuracaoPdfService
 
         doc.AdicionarSubtitulo("Comparativo mensal");
         doc.AdicionarTabela(
-            ["Mes", "Entradas", "Saidas", "Transf. ent.", "Transf. sai.", "Antecipado", "A recolher"],
+            ["Mes", "Entradas", "Saidas", "Transf. ent.", "Transf. sai."],
             apuracoes.Select(item =>
             {
                 var resumo = CriarResumoRelatorio(item.Dashboard);
@@ -93,18 +94,32 @@ public sealed class IcmsApuracaoPdfService : IIcmsApuracaoPdfService
                     FormatarMoeda(resumo.ValorTotalEntradas),
                     FormatarMoeda(resumo.ValorTotalSaidas),
                     FormatarMoeda(resumo.ValorTransferenciaEntrada),
-                    FormatarMoeda(resumo.ValorTransferenciaSaida),
+                    FormatarMoeda(resumo.ValorTransferenciaSaida)
+                };
+            }).ToArray(),
+            [60, 120, 120, 115, 115]);
+
+        doc.AdicionarSubtitulo("Creditos, ajustes e recolhimento");
+        doc.AdicionarTabela(
+            ["Mes", "Credito de estoque", "ICMS antecipado", "ICMS a recolher"],
+            apuracoes.Select(item =>
+            {
+                var resumo = CriarResumoRelatorio(item.Dashboard);
+                return new[]
+                {
+                    item.Competencia.ToString("MM/yyyy", CulturaBrasil),
+                    FormatarMoeda(resumo.IcmsCreditoEstoque),
                     FormatarMoeda(resumo.IcmsAntecipado),
                     FormatarMoeda(resumo.IcmsARecolher)
                 };
             }).ToArray(),
-            [50, 82, 82, 82, 82, 82, 82]);
+            [70, 160, 150, 150]);
 
         doc.AdicionarSubtitulo("Leitura rapida");
         foreach (var item in apuracoes)
         {
             var resumo = CriarResumoRelatorio(item.Dashboard);
-            doc.AdicionarLinha($"{item.Competencia:MM/yyyy}: debitos {FormatarMoeda(resumo.IcmsDebitado)}, creditos {FormatarMoeda(resumo.IcmsCreditado)}, antecipado {FormatarMoeda(resumo.IcmsAntecipado)}, a recolher {FormatarMoeda(resumo.IcmsARecolher)}.");
+            doc.AdicionarLinha($"{item.Competencia:MM/yyyy}: debitos {FormatarMoeda(resumo.IcmsDebitado)}, creditos {FormatarMoeda(resumo.IcmsCreditado)}, credito de estoque {FormatarMoeda(resumo.IcmsCreditoEstoque)}, antecipado {FormatarMoeda(resumo.IcmsAntecipado)}, a recolher {FormatarMoeda(resumo.IcmsARecolher)}.");
         }
 
         var totalRecolher = apuracoes.Sum(item => CriarResumoRelatorio(item.Dashboard).IcmsARecolher);
@@ -251,7 +266,8 @@ public sealed class IcmsApuracaoPdfService : IIcmsApuracaoPdfService
             IcmsDebitado = icmsDebitado,
             IcmsCreditado = icmsCreditado,
             IcmsAntecipado = dashboard.Resumo.IcmsAntecipado,
-            IcmsARecolher = Math.Max(0, icmsDebitado - icmsCreditado - dashboard.Resumo.IcmsAntecipado)
+            IcmsCreditoEstoque = dashboard.Resumo.IcmsCreditoEstoque,
+            IcmsARecolher = dashboard.Resumo.IcmsARecolher
         };
     }
 
@@ -884,6 +900,7 @@ public sealed class IcmsApuracaoPdfService : IIcmsApuracaoPdfService
         public decimal IcmsDebitado { get; set; }
         public decimal IcmsCreditado { get; set; }
         public decimal IcmsAntecipado { get; set; }
+        public decimal IcmsCreditoEstoque { get; set; }
         public decimal IcmsARecolher { get; set; }
     }
 

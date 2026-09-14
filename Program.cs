@@ -24,6 +24,7 @@ builder.Services.AddScoped<IIcmsApuracaoPdfService, IcmsApuracaoPdfService>();
 builder.Services.AddScoped<IGuiaIcmsPdfLeituraService, GuiaIcmsPdfLeituraService>();
 builder.Services.AddScoped<IFolhaFortesImportService, FolhaFortesImportService>();
 builder.Services.AddScoped<IContrachequePdfService, ContrachequePdfService>();
+builder.Services.AddScoped<IRegimeTributarioPdfService, RegimeTributarioPdfService>();
 builder.Services.AddScoped<IPreAnaliseFortesFiscalService, PreAnaliseFortesFiscalService>();
 builder.Services.AddScoped<IIcmsFortesApuracaoService, IcmsFortesApuracaoService>();
 builder.Services.AddScoped<INfseFortesInssService, NfseFortesInssService>();

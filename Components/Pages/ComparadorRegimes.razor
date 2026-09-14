@@ -1,10 +1,23 @@
 @page "/comparador-regimes"
 @rendermode InteractiveServer
 @using System.Globalization
+@using System.Text
 @using N3.AnalisadorFiscal.Web.Services
 @inject IFortesRegimeTributarioService FortesRegimeTributarioService
+@inject IRegimeTributarioPdfService RegimeTributarioPdfService
+@inject IJSRuntime JS
 
 <PageTitle>Comparador de regimes tributários</PageTitle>
+
+<style>
+    .serido-rule { display:flex; flex-direction:column; gap:.25rem; margin-top:.8rem; padding:.8rem .9rem; border:1px solid #93c5fd; border-left:4px solid #155da8; border-radius:8px; background:#eff6ff; color:#1e3a8a; }
+    .serido-rule span { font-size:.8rem; line-height:1.45; }
+    .result-actions { display:flex; flex-direction:column; align-items:stretch; gap:.55rem; }
+    .report-button { display:flex; align-items:center; justify-content:center; min-height:40px; box-sizing:border-box; padding:.55rem .9rem; border:0; border-radius:8px; background:#0f3d68; color:#fff; font-size:.8rem; font-weight:800; text-align:center; text-decoration:none; box-shadow:0 3px 8px #0f3d6833; cursor:pointer; }
+    .report-button:hover { background:#155da8; color:#fff; }
+    .report-button:disabled { opacity:.6; cursor:wait; }
+    @@media(max-width:760px) { .result-actions { width:100%; box-sizing:border-box; } }
+</style>
 
 <section class="regime-page">
     <header class="page-header">
@@ -27,6 +40,13 @@
             <button type="button" class="ghost-button" @onclick="CarregarExemplo" disabled="@carregando">Usar exemplo</button>
         </div>
         @if (!string.IsNullOrWhiteSpace(mensagem)) { <div class="message @(erro ? "error" : "success")">@mensagem</div> }
+        @if (cenario.AplicarTratamentoSeridoComercio)
+        {
+            <div class="serido-rule">
+                <strong>Tratamento exclusivo da Seridó Comércio ativo</strong>
+                <span>ICMS: @PercentualInformado(cenario.PercentualReceitaTributadaIcms) da receita de mercadorias tributada. PIS/Cofins: @PercentualInformado(cenario.PercentualReceitaTributadaPisCofins) da receita tributada somente no Lucro Presumido e no Lucro Real; no Simples, PIS/Cofins permanecem no DAS.</span>
+            </div>
+        }
     </section>
 
     <div class="input-layout">
@@ -58,6 +78,10 @@
             <div class="field-grid">
                 <label><span>Alíquota de ICMS nas saídas</span><div class="percent-input"><input type="number" min="0" max="100" step="0.01" @bind="cenario.AliquotaIcmsDebito" /><i>%</i></div><small>Ao consultar o Fortes, a simulação usa 20%.</small></label>
                 <label><span>Alíquota média do crédito nas entradas</span><div class="percent-input"><input type="number" min="0" max="100" step="0.01" @bind="cenario.AliquotaIcmsCreditoPotencial" /><i>%</i></div><small>No Fortes, é calculada pela UF do participante: interna 20%, Nordeste 12% e Sul/Sudeste 7%.</small></label>
+                @if (cenario.AplicarTratamentoSeridoComercio)
+                {
+                    <label><span>Receita tributada por ICMS · Seridó</span><div class="percent-input"><input type="number" min="0" max="100" step="0.01" @bind="cenario.PercentualReceitaTributadaIcms" /><i>%</i></div><small>A parcela restante é tratada como imune em todos os regimes, inclusive na partilha de ICMS do DAS.</small></label>
+                }
                 <label><span>Crédito anual de ICMS calculado</span><div class="money-input"><i>R$</i><input type="number" min="0" step="100" @bind="cenario.CreditoIcms" /></div><small>Este valor reduz o débito no Lucro Presumido e no Lucro Real.</small></label>
                 <label><span>Alíquota efetiva de ISS</span><div class="percent-input"><input type="number" min="0" max="100" step="0.01" @bind="cenario.AliquotaIss" /><i>%</i></div></label>
                 <label><span>Base anual apta a crédito de PIS/Cofins</span><div class="money-input"><i>R$</i><input type="number" min="0" step="1000" @bind="cenario.BaseCreditoPisCofins" /></div><small>Não é toda compra que gera crédito; informe somente a base elegível.</small></label>
@@ -84,8 +108,12 @@
         <section class="results-section">
             <header class="results-header">
                 <div><span class="eyebrow">Resultado anual estimado</span><h2>Comparação da carga tributária</h2><p>Menor valor entre os regimes marcados como elegíveis, sem substituir a validação fiscal e societária.</p></div>
-                @if (resultado.MenorCarga is { } menor) { <div class="best-summary"><span>Menor carga no cenário</span><strong>@menor.Regime</strong><small>@Moeda(menor.Total) · @Percentual(menor.AliquotaEfetiva)</small></div> }
+                <div class="result-actions">
+                    @if (resultado.MenorCarga is { } menor) { <div class="best-summary"><span>Menor carga no cenário</span><strong>@menor.Regime</strong><small>@Moeda(menor.Total) · @Percentual(menor.AliquotaEfetiva)</small></div> }
+                    <button type="button" class="report-button" @onclick="GerarRelatorioAsync" disabled="@gerandoRelatorio">@(gerandoRelatorio ? "Gerando relatório..." : "Gerar relatório detalhado em PDF")</button>
+                </div>
             </header>
+            @if (!string.IsNullOrWhiteSpace(mensagemRelatorio)) { <div class="message error">@mensagemRelatorio</div> }
 
             <div class="regime-cards">
                 @foreach (var regime in resultado.Regimes)
@@ -194,7 +222,7 @@
                         </tbody>
                     </table>
                 </div>
-                <p class="comparison-note">No Simples Nacional, o ICMS total reúne a parcela estimada dentro do DAS e o DIFAL das entradas interestaduais, calculado fora do DAS pela diferença para a alíquota interna. No Lucro Presumido e no Lucro Real, o ICMS corresponde ao débito menos o crédito calculado pela UF do participante.</p>
+                <p class="comparison-note">No Simples Nacional, o ICMS total reúne a parcela estimada dentro do DAS e o DIFAL das entradas interestaduais, calculado fora do DAS pela diferença para a alíquota interna. No Lucro Presumido e no Lucro Real, o ICMS corresponde ao débito menos o crédito calculado pela UF do participante.@(resultado.TratamentoSeridoComercioAplicado ? " Para a Seridó Comércio, a parcela imune de ICMS foi excluída em todos os regimes, enquanto o benefício de PIS/Cofins foi aplicado somente fora do Simples Nacional." : string.Empty)</p>
             </section>
 
             <div class="insight-grid">
@@ -240,6 +268,10 @@
     private int ano = DateTime.Today.Year;
     private bool carregando, erro;
     private string? mensagem;
+    private string nomeEmpresaRelatorio = "Cenário manual";
+    private string? cnpjEmpresaRelatorio;
+    private bool gerandoRelatorio;
+    private string? mensagemRelatorio;
 
     protected override async Task OnInitializedAsync()
     {
@@ -261,9 +293,20 @@
             var dados = await FortesRegimeTributarioService.ConsultarAsync(codigoEmpresaFortes, ano);
             var receitaTotal = dados.ReceitaMercadorias + dados.ReceitaServicos;
             const decimal aliquotaDebitoIcms = 20m;
+            var tratamentoSerido = EhSeridoComercio(dados.Empresa);
             var aliquotaCreditoIcms = dados.ComprasMercadoriasInsumos > 0 && dados.CreditoIcms > 0
                 ? dados.CreditoIcms / dados.ComprasMercadoriasInsumos * 100m
                 : 0m;
+            var percentualTributadoIcms = tratamentoSerido && dados.ReceitaMercadorias > 0
+                ? Math.Clamp(dados.DebitoIcms / (dados.ReceitaMercadorias * aliquotaDebitoIcms / 100m) * 100m, 0m, 100m)
+                : 100m;
+            var percentualTributadoPisCofins = tratamentoSerido
+                ? receitaTotal > 0 ? Math.Clamp(dados.BaseReceitaPisCofins / receitaTotal * 100m, 0m, 100m) : 0m
+                : dados.Empresa.OptanteSimples
+                    ? 100m
+                    : receitaTotal > 0 && dados.BaseReceitaPisCofins > 0
+                        ? Math.Min(100m, dados.BaseReceitaPisCofins / receitaTotal * 100m)
+                        : 100m;
 
             cenario = new CenarioTributario
             {
@@ -285,17 +328,20 @@
                 AliquotaIcmsCreditoPotencial = aliquotaCreditoIcms,
                 AliquotaIss = dados.ReceitaServicos > 0 ? dados.Iss / dados.ReceitaServicos * 100m : 5m,
                 AliquotaEncargosPatronais = dados.FolhaBruta > 0 && dados.InssPatronal > 0 ? dados.InssPatronal / dados.FolhaBruta * 100m : 28.8m,
-                PercentualReceitaTributadaPisCofins = dados.Empresa.OptanteSimples
-                    ? 100m
-                    : receitaTotal > 0 && dados.BaseReceitaPisCofins > 0
-                    ? Math.Min(100m, dados.BaseReceitaPisCofins / receitaTotal * 100m)
-                    : 100m,
+                PercentualReceitaTributadaIcms = percentualTributadoIcms,
+                PercentualReceitaTributadaPisCofins = percentualTributadoPisCofins,
                 TipoMercadoria = TipoOperacaoMercadoria.Comercio,
-                EnquadramentoServico = EnquadramentoServicoSimples.FatorR
+                EnquadramentoServico = EnquadramentoServicoSimples.FatorR,
+                AplicarTratamentoSeridoComercio = tratamentoSerido
             };
+            nomeEmpresaRelatorio = dados.Empresa.RazaoSocial;
+            cnpjEmpresaRelatorio = dados.Empresa.Cnpj;
             Calcular();
             var simples = dados.Empresa.OptanteSimples ? "O cadastro Fortes marca a empresa como optante pelo Simples." : "O cadastro Fortes não marca a empresa como optante pelo Simples.";
-            mensagem = $"Consulta direta concluída para {dados.Empresa.RazaoSocial}: {dados.DocumentosMercadorias} movimento(s) fiscais de mercadorias, {dados.DocumentosServicos} documento(s) de serviços e {dados.CompetenciasFolha} competência(s) de folha em {ano}. O débito de ICMS foi projetado a 20% e o crédito foi calculado pela UF dos participantes. {simples} Revise as premissas não existentes no Fortes, como outras despesas e impedimentos.";
+            var regraSerido = tratamentoSerido
+                ? $" Tratamento Seridó aplicado: {percentualTributadoIcms:N2}% da receita tributada por ICMS e {percentualTributadoPisCofins:N2}% por PIS/Cofins fora do Simples."
+                : string.Empty;
+            mensagem = $"Consulta direta concluída para {dados.Empresa.RazaoSocial}: {dados.DocumentosMercadorias} movimento(s) fiscais de mercadorias, {dados.DocumentosServicos} documento(s) de serviços e {dados.CompetenciasFolha} competência(s) de folha em {ano}. O débito de ICMS foi projetado a 20% e o crédito foi calculado pela UF dos participantes. {simples}{regraSerido} Revise as premissas não existentes no Fortes, como outras despesas e impedimentos.";
         }
         catch (Exception ex) { erro = true; mensagem = $"Não foi possível carregar os dados: {ex.Message}"; }
         finally { carregando = false; }
@@ -304,6 +350,8 @@
     private void CarregarExemplo()
     {
         erro = false; mensagem = "Cenário demonstrativo carregado. Substitua os valores pelos dados reais da empresa.";
+        nomeEmpresaRelatorio = "Cenário demonstrativo";
+        cnpjEmpresaRelatorio = null;
         cenario = new CenarioTributario
         {
             ReceitaMercadorias = 900_000m, ReceitaServicos = 300_000m, ReceitaBruta12Meses = 1_200_000m,
@@ -316,7 +364,54 @@
         Calcular();
     }
 
-    private void Calcular() => resultado = RegimeTributarioCalculator.Calcular(cenario);
+    private void Calcular()
+    {
+        resultado = RegimeTributarioCalculator.Calcular(cenario);
+        mensagemRelatorio = null;
+    }
+
+    private async Task GerarRelatorioAsync()
+    {
+        if (resultado is null) return;
+        gerandoRelatorio = true;
+        mensagemRelatorio = null;
+        try
+        {
+            var resultadoAtual = RegimeTributarioCalculator.Calcular(cenario);
+            resultado = resultadoAtual;
+            var pdf = RegimeTributarioPdfService.Gerar(new ComparacaoRegimesRelatorio(
+                nomeEmpresaRelatorio, cnpjEmpresaRelatorio, ano, cenario, resultadoAtual));
+            using var referencia = new DotNetStreamReference(new MemoryStream(pdf));
+            var nomeArquivo = $"comparacao_regimes_{NomeSeguroArquivo(nomeEmpresaRelatorio)}_{ano}.pdf";
+            await JS.InvokeVoidAsync("n3DownloadFile", nomeArquivo, referencia);
+        }
+        catch (Exception ex)
+        {
+            mensagemRelatorio = $"Não foi possível gerar o relatório: {ex.Message}";
+        }
+        finally { gerandoRelatorio = false; }
+    }
+
+    private static bool EhSeridoComercio(FortesEmpresaOpcao empresa)
+    {
+        var nome = RemoverAcentos($"{empresa.RazaoSocial} {empresa.NomeFantasia}").ToUpperInvariant();
+        return nome.Contains("SERIDO", StringComparison.Ordinal)
+               && nome.Contains("COMERCIO", StringComparison.Ordinal);
+    }
+
+    private static string RemoverAcentos(string valor)
+    {
+        var normalizado = valor.Normalize(NormalizationForm.FormD);
+        return new string(normalizado.Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark).ToArray())
+            .Normalize(NormalizationForm.FormC);
+    }
+
+    private static string NomeSeguroArquivo(string valor)
+    {
+        var nome = new string(RemoverAcentos(valor).Select(c => char.IsLetterOrDigit(c) ? char.ToLowerInvariant(c) : '_').ToArray());
+        while (nome.Contains("__", StringComparison.Ordinal)) nome = nome.Replace("__", "_", StringComparison.Ordinal);
+        return nome.Trim('_');
+    }
     private static bool TemDetalhamentoIcmsPorUf(ResultadoComparacaoTributaria valor)
         => valor.EntradasIcmsInternas != 0m
            || valor.EntradasIcmsNordeste != 0m

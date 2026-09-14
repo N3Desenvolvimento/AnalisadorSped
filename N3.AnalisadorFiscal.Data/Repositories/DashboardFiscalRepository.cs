@@ -798,7 +798,17 @@ public sealed class DashboardFiscalRepository : IDashboardFiscalRepository
                     e111.COD_AJ_APUR = 'RN022009'
                     OR UPPER(e111.DESCR_COMPL_AJ) LIKE '%ICMS%ANTECIP%'
                   )
-            ), 0) AS IcmsAntecipado
+            ), 0) AS IcmsAntecipado,
+            COALESCE((
+                SELECT SUM(e111.VL_AJ_APUR)
+                FROM SPED_ARQUIVO a2
+                INNER JOIN SPED_E110 e110 ON e110.ID_ARQUIVO = a2.ID_ARQUIVO
+                INNER JOIN SPED_E111 e111 ON e111.ID_E110 = e110.ID_E110
+                WHERE a2.ID_EMPRESA = @EmpresaId
+                  AND a2.DT_INI >= @Inicio
+                  AND a2.DT_INI < @Fim
+                  AND e111.COD_AJ_APUR = 'RN022037'
+            ), 0) AS IcmsCreditoEstoque
         FROM SPED_ARQUIVO a
         LEFT JOIN SPED_C100 c100 ON c100.ID_ARQUIVO = a.ID_ARQUIVO
         WHERE a.ID_EMPRESA = @EmpresaId

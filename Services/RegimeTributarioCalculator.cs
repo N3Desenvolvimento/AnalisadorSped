@@ -36,12 +36,14 @@ public sealed class CenarioTributario
     public decimal AjustesCreditoIcms { get; set; }
     public decimal AliquotaIss { get; set; } = 5m;
     public decimal AliquotaEncargosPatronais { get; set; } = 28.8m;
+    public decimal PercentualReceitaTributadaIcms { get; set; } = 100m;
     public decimal PercentualReceitaTributadaPisCofins { get; set; } = 100m;
     public decimal TributosForaDas { get; set; }
     public TipoOperacaoMercadoria TipoMercadoria { get; set; } = TipoOperacaoMercadoria.Comercio;
     public EnquadramentoServicoSimples EnquadramentoServico { get; set; } = EnquadramentoServicoSimples.FatorR;
     public bool ImpedimentoSimples { get; set; }
     public bool ImpedimentoPresumido { get; set; }
+    public bool AplicarTratamentoSeridoComercio { get; set; }
 }
 
 public sealed record TributoEstimado(string Nome, decimal Valor, string? Observacao = null);
@@ -78,6 +80,9 @@ public sealed class ResultadoComparacaoTributaria
     public decimal EntradasIcmsSemRegra { get; init; }
     public decimal AjustesCreditoIcms { get; init; }
     public decimal DifalIcmsSimples { get; init; }
+    public decimal PercentualReceitaTributadaIcms { get; init; }
+    public decimal PercentualReceitaTributadaPisCofins { get; init; }
+    public bool TratamentoSeridoComercioAplicado { get; init; }
     public ResultadoRegimeTributario? MenorCarga => Regimes.Where(x => x.Elegivel).MinBy(x => x.Total);
 }
 
@@ -160,6 +165,7 @@ public static class RegimeTributarioCalculator
             : c.CustoMercadoriasInsumos * c.AliquotaIcmsCreditoPotencial / 100m;
         var difalIcmsSimples = CalcularDifalIcmsSimples(c);
 
+        var debitoIcmsEstimado = CalcularDebitoIcms(c);
         var regimes = new[]
         {
             CalcularSimples(c, receita, rbt12, fatorR, encargos, difalIcmsSimples),
@@ -174,10 +180,10 @@ public static class RegimeTributarioCalculator
             LucroRealEstimado = lucroAntesTributos,
             SaidasMercadorias = c.ReceitaMercadorias,
             EntradasMercadorias = c.CustoMercadoriasInsumos,
-            DebitoIcmsEstimado = c.ReceitaMercadorias * c.AliquotaIcmsDebito / 100m,
+            DebitoIcmsEstimado = debitoIcmsEstimado,
             CreditoIcmsPotencial = Math.Max(0m, creditoIcmsPotencial),
             CreditoIcmsAproveitavel = Math.Min(
-                c.ReceitaMercadorias * c.AliquotaIcmsDebito / 100m,
+                debitoIcmsEstimado,
                 c.CreditoIcms),
             AliquotaIcmsDebito = c.AliquotaIcmsDebito,
             AliquotaIcmsCreditoPotencial = c.AliquotaIcmsCreditoPotencial,
@@ -188,6 +194,9 @@ public static class RegimeTributarioCalculator
             EntradasIcmsSemRegra = c.EntradasIcmsSemRegra,
             AjustesCreditoIcms = c.AjustesCreditoIcms,
             DifalIcmsSimples = difalIcmsSimples,
+            PercentualReceitaTributadaIcms = c.PercentualReceitaTributadaIcms,
+            PercentualReceitaTributadaPisCofins = c.PercentualReceitaTributadaPisCofins,
+            TratamentoSeridoComercioAplicado = c.AplicarTratamentoSeridoComercio,
             Regimes = regimes,
             FatosRelevantes = MontarFatos(c, receita, rbt12, fatorR, lucroAntesTributos, regimes)
         };
@@ -209,8 +218,13 @@ public static class RegimeTributarioCalculator
         var dasServicos = c.ReceitaServicos * aliquotaServico;
         var partilha = RatearDas(c.ReceitaMercadorias, dasMercadorias, faixaMercadoria)
             + RatearDas(c.ReceitaServicos, dasServicos, faixaServico);
+        if (c.AplicarTratamentoSeridoComercio)
+            partilha = partilha with { Icms = partilha.Icms * c.PercentualReceitaTributadaIcms / 100m };
         var observacaoDas = $"Partilha estimada do DAS: mercadorias em {nomeMercadoria} ({aliquotaMercadoria:P2})"
                             + (c.ReceitaServicos > 0 ? $" e serviços em {nomeServico} ({aliquotaServico:P2})" : string.Empty);
+        var observacaoIcms = c.AplicarTratamentoSeridoComercio
+            ? $"Parcela do DAS ajustada: {c.PercentualReceitaTributadaIcms:N2}% da receita de mercadorias tratada como tributada por ICMS"
+            : null;
 
         var tributos = new List<TributoEstimado>
         {
@@ -220,7 +234,7 @@ public static class RegimeTributarioCalculator
             new("Cofins", partilha.Cofins),
             new("CPP / encargos patronais", partilha.Cpp + (cppForaDas ? encargos : 0m),
                 cppForaDas ? "CPP do Anexo IV calculada fora do DAS" : "CPP repartida dentro do DAS"),
-            new("ICMS", partilha.Icms),
+            new("ICMS", partilha.Icms, observacaoIcms),
             new("ICMS - DIFAL das entradas", difalIcmsEntradas,
                 $"Diferença entre a alíquota interna de {c.AliquotaIcmsDebito:N2}% e a alíquota interestadual pela UF do participante"),
             new("IPI", partilha.Ipi),
@@ -243,7 +257,7 @@ public static class RegimeTributarioCalculator
         var receitaPisCofins = receita * c.PercentualReceitaTributadaPisCofins / 100m;
         var baseIrpj = c.ReceitaMercadorias * 8m / 100m + c.ReceitaServicos * 32m / 100m;
         var baseCsll = c.ReceitaMercadorias * 12m / 100m + c.ReceitaServicos * 32m / 100m;
-        var debitoIcms = c.ReceitaMercadorias * c.AliquotaIcmsDebito / 100m;
+        var debitoIcms = CalcularDebitoIcms(c);
         var tributos = new List<TributoEstimado>
         {
             new("IRPJ", baseIrpj * 15m / 100m),
@@ -278,7 +292,7 @@ public static class RegimeTributarioCalculator
         var debitoCofins = receitaPisCofins * 7.6m / 100m;
         var creditoPis = Math.Min(debitoPis, c.BaseCreditoPisCofins * 1.65m / 100m);
         var creditoCofins = Math.Min(debitoCofins, c.BaseCreditoPisCofins * 7.6m / 100m);
-        var debitoIcms = c.ReceitaMercadorias * c.AliquotaIcmsDebito / 100m;
+        var debitoIcms = CalcularDebitoIcms(c);
         var creditoIcms = Math.Min(debitoIcms, c.CreditoIcms);
 
         var tributos = new List<TributoEstimado>
@@ -352,7 +366,11 @@ public static class RegimeTributarioCalculator
         if (rbt12 > 3_600_000m && rbt12 <= LimiteSimples)
             fatos.Add("A receita supera R$ 3,6 milhões; sublimites de ICMS/ISS precisam ser avaliados separadamente.");
         if (c.PercentualReceitaTributadaPisCofins < 100m)
-            fatos.Add($"Apenas {c.PercentualReceitaTributadaPisCofins:N2}% da receita foi tratada como tributada por PIS/Cofins.");
+            fatos.Add(c.AplicarTratamentoSeridoComercio
+                ? $"Seridó Comércio: apenas {c.PercentualReceitaTributadaPisCofins:N2}% da receita foi tratada como tributada por PIS/Cofins no Lucro Presumido e no Lucro Real; no Simples Nacional, PIS/Cofins permanecem integralmente na partilha do DAS."
+                : $"Apenas {c.PercentualReceitaTributadaPisCofins:N2}% da receita foi tratada como tributada por PIS/Cofins.");
+        if (c.AplicarTratamentoSeridoComercio)
+            fatos.Add($"Seridó Comércio: {c.PercentualReceitaTributadaIcms:N2}% da receita de mercadorias foi tratada como tributada por ICMS; a parcela imune foi excluída também da partilha de ICMS do DAS.");
 
         return fatos;
     }
@@ -436,12 +454,14 @@ public static class RegimeTributarioCalculator
         AjustesCreditoIcms = c.AjustesCreditoIcms,
         AliquotaIss = Percentual(c.AliquotaIss),
         AliquotaEncargosPatronais = Percentual(c.AliquotaEncargosPatronais),
+        PercentualReceitaTributadaIcms = Percentual(c.PercentualReceitaTributadaIcms),
         PercentualReceitaTributadaPisCofins = Percentual(c.PercentualReceitaTributadaPisCofins),
         TributosForaDas = NaoNegativo(c.TributosForaDas),
         TipoMercadoria = c.TipoMercadoria,
         EnquadramentoServico = c.EnquadramentoServico,
         ImpedimentoSimples = c.ImpedimentoSimples,
-        ImpedimentoPresumido = c.ImpedimentoPresumido
+        ImpedimentoPresumido = c.ImpedimentoPresumido,
+        AplicarTratamentoSeridoComercio = c.AplicarTratamentoSeridoComercio
     };
 
     private static decimal NaoNegativo(decimal valor) => Math.Max(0m, valor);
@@ -450,6 +470,9 @@ public static class RegimeTributarioCalculator
         => c.EntradasIcmsNordeste * Math.Max(0m, c.AliquotaIcmsDebito - 12m) / 100m
            + c.EntradasIcmsSulSudeste * Math.Max(0m, c.AliquotaIcmsDebito - 7m) / 100m
            + c.EntradasIcmsOutrasInterestaduais * Math.Max(0m, c.AliquotaIcmsDebito - 12m) / 100m;
+    private static decimal CalcularDebitoIcms(CenarioTributario c)
+        => c.ReceitaMercadorias * c.AliquotaIcmsDebito / 100m
+           * c.PercentualReceitaTributadaIcms / 100m;
     private static string Moeda(decimal valor) => valor.ToString("C2", System.Globalization.CultureInfo.GetCultureInfo("pt-BR"));
     private sealed record FaixaSimples(
         decimal Limite,
